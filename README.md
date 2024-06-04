@@ -2,7 +2,7 @@
 [![Review Assignment Due Date](https://classroom.github.com/assets/deadline-readme-button-24ddc0f5d75046c5622901739e7c5dd533143b0c8e959d652212380cedb1ea36.svg)](https://classroom.github.com/a/PKo6zpFB)
 ##  Introducción
 Se tienen tres aplicaciones distintas, las cuales se comunican a través de sockets.
-
+![Diagrama del Proyecto](diagrams/C4_gridrust.drawio.png)
 ## Interfaces de Clientes
 Programación asincrónica para esperar a recibir los helados de gestión de pedidos.
 
@@ -31,6 +31,6 @@ Programación asincrónica para esperar a recibir los helados de gestión de ped
   2. Cuando un proceso recibe el mensaje verifica si está listo para el compromiso y lo escribe en el log y envía su decisión
   3. Si el coordinador recibe todas las respuestas de los procesos diciendo que están listos para comprometerse se efectúa y finaliza el compromiso, si alguno no se puede comprometer se     aborta la preparación del helado.
 En este caso no sé si los procesos deberían ser los propios robots u otra estructura, podrían ser los contenedores de helado que se consultan para saber si hay suficiente de cada gusto para completar el pedido.
-
+![Diagrama de secuencia](diagrams/secuencia-gateway.jpeg)
 ## Conclusión
 

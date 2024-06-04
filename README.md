@@ -47,21 +47,27 @@ Se plantea utilizar programación asincrónica para esperar a recibir los helado
 ## Gateway de Pago
 - Commit de dos fases para la captura (cuando se toma el pedido), se arma el helado y el pago efectivo (entrega del helado):
   En este caso el compromiso es entregar el helado solicitado.
-   1. Hay un proceso coordinador que ejecuta la transacción, este escribe en su log prepare indicando que inicia la preparación del pedido y le envía al resto de los procesos prepare,     para avisarle a los demás procesos que estén listos para el compromiso.
-  2. Cuando un proceso recibe el mensaje verifica si está listo para el compromiso y lo escribe en el log y envía su decisión
+   1. Hay un proceso coordinador que ejecuta la transacción, este escribe en su log _prepare_ indicando que inicia la preparación del pedido y le envía al resto de los procesos _prepare_, para avisarle a los demás procesos que estén listos para el compromiso.
+  2. Cuando un proceso recibe el mensaje verifica si está listo para el compromiso y lo escribe en el log y envía su decisión.
   3. Si el coordinador recibe todas las respuestas de los procesos diciendo que están listos para comprometerse se efectúa y finaliza el compromiso, si alguno no se puede comprometer se     aborta la preparación del helado.
+  4. En el caso de que se efectúe satisfactoriamente el pago, se loguean los datos del cliente y del pedido en un _txt_.
+    
 En este caso no sé si los procesos deberían ser los propios robots u otra estructura, podrían ser los contenedores de helado que se consultan para saber si hay suficiente de cada gusto para completar el pedido.
+
 ![Diagrama de secuencia](img/diagrams/secuencia-gateway.jpeg)
 
 ## Supuestos
 - Cada **pedido** posee los siguientes atributos:
-  - **id**: clave numérica única para cada pedido.
-  - **id del cliente**: clave numérica única para el cliente que realiza el pedido.
+  - **id**: clave numérica única para cada uno.
+  - **cliente**: datos de quien lo realiza.
   - **items**: lista de productos que lo conforman.
+- Cada **cliente** posee los siguientes atributos:
+  - **id**: clave numérica única para cada uno.
+  - **tarjeta de crédito**: los 16 números de la misma en formato string.
 - Cada **producto** posee los siguientes atributos:
   - **tipo**: puede ser vasito, cucurucho, 1/4 kg, 1/2 kg o 1 kg. 
-  - **cantidad**: número de unidades del producto en cuestión.
-  - **sabores**: lista de sabores que pueden ser chocolate, frutilla, vainilla, menta y limón.
+  - **cantidad**: número de unidades del mismo.
+  - **sabores**: lista de sabores que pueden ser chocolate, frutilla, vainilla, menta y limón. El máximo de sabores para un producto es 3.
 
 ## Conclusión
 

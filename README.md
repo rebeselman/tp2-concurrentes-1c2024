@@ -54,7 +54,14 @@ En este caso no sé si los procesos deberían ser los propios robots u otra estr
 ![Diagrama de secuencia](img/diagrams/secuencia-gateway.jpeg)
 
 ## Supuestos
-- 
+- Cada **pedido** posee los siguientes atributos:
+  - **id**: clave numérica única para cada pedido.
+  - **id del cliente**: clave numérica única para el cliente que realiza el pedido.
+  - **items**: lista de productos que lo conforman.
+- Cada **producto** posee los siguientes atributos:
+  - **tipo**: puede ser vasito, cucurucho, 1/4 kg, 1/2 kg o 1 kg. 
+  - **cantidad**: número de unidades del producto en cuestión.
+  - **sabores**: lista de sabores que pueden ser chocolate, frutilla, vainilla, menta y limón.
 
 ## Conclusión
 

@@ -1,21 +1,2 @@
-{"size": "small", "taste": ["vanilla", "chocolate", "strawberry", "mango", "lemon"]}
-{"size": "large", "taste": ["vanilla", "chocolate", "strawberry"]}
-{"size": "medium", "taste": ["chocolate", "lemon"]}
-{"size": "small", "taste": ["vanilla", "chocolate", "strawberry", "mango", "lemon"]}
-{"size": "large", "taste": ["vanilla", "chocolate", "strawberry"]}
-{"size": "medium", "taste": ["chocolate", "lemon"]}
-{"size": "small", "taste": ["vanilla", "chocolate", "strawberry", "mango", "lemon"]}
-{"size": "large", "taste": ["vanilla", "chocolate", "strawberry"]}
-{"size": "medium", "taste": ["chocolate", "lemon"]}
-{"size": "small", "taste": ["vanilla", "chocolate", "strawberry", "mango", "lemon"]}
-{"size": "large", "taste": ["vanilla", "chocolate", "strawberry"]}
-{"size": "medium", "taste": ["chocolate", "lemon"]}
-{"size": "small", "taste": ["vanilla", "chocolate", "strawberry", "mango", "lemon"]}
-{"size": "large", "taste": ["vanilla", "chocolate", "strawberry"]}
-{"size": "medium", "taste": ["chocolate", "lemon"]}
-{"size": "small", "taste": ["vanilla", "chocolate", "strawberry", "mango", "lemon"]}
-{"size": "large", "taste": ["vanilla", "chocolate", "strawberry"]}
-{"size": "medium", "taste": ["chocolate", "lemon"]}
-{"size": "small", "taste": ["vanilla", "chocolate", "strawberry", "mango", "lemon"]}
-{"size": "large", "taste": ["vanilla", "chocolate", "strawberry"]}
-{"size": "medium", "taste": ["chocolate", "lemon"]}
+{"id": 1, "client_id": 1234, "items": [{"type": "cone", "quantity": 2, "flavors": ["chocolate", "vanilla"]}, {"type": "cup", "quantity": 1, "flavors": ["strawberry", "chocolate"]}]}
+{"id": 2, "client_id": 5678, "items": [{"type": "1 kg", "quantity": 1, "flavors": ["mint", "vanilla", "lemon"]}]}

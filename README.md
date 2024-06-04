@@ -1,6 +1,4 @@
 # GridRust
-[![Review Assignment Due Date](https://classroom.github.com/assets/deadline-readme-button-24ddc0f5d75046c5622901739e7c5dd533143b0c8e959d652212380cedb1ea36.svg)](https://classroom.github.com/a/PKo6zpFB)
-
 
 <p align="center">
   <img src="img/grido.png" width="45%">
@@ -8,6 +6,7 @@
   <img src="img/rust_crab.png" width="45%">
 </p>
 
+[![Review Assignment Due Date](https://classroom.github.com/assets/deadline-readme-button-24ddc0f5d75046c5622901739e7c5dd533143b0c8e959d652212380cedb1ea36.svg)](https://classroom.github.com/a/PKo6zpFB)
 
 ## Índice
 - [GridRust](#gridrust)
@@ -20,14 +19,16 @@
   - [Conclusión](#conclusión)
 
 ##  Introducción
-Se tienen tres aplicaciones distintas, las cuales se comunican a través de sockets.
-![Diagrama del Proyecto](diagrams/C4_gridrust.drawio.png)
+El diseño del modelo consta de tres aplicaciones distintas, las cuáles se comunican a través de sockets.
+
+![Diagrama del Proyecto](img/diagrams/C4_gridrust.drawio.png)
+
 ## Interfaces de Clientes
-Programación asincrónica para esperar a recibir los helados de gestión de pedidos.
+Se plantea utilizar programación asincrónica para esperar a recibir los helados de gestión de pedidos. Los mismos vendrán de un archivo *jsonl*.
 
 ## Gestión de Pedidos con robots
 - Modelo de actores para los robots:
-    Tendrían como estado interno el contenedor que están usando o si no están usando ninguno. Los tipos de mensajes serían para solicitar un contenedor, para liberarlo, para otorgarlo y       para denegarlo.
+    Tendrían como estado interno el contenedor que están usando o si no están usando ninguno. Los tipos de mensajes serían para solicitar un contenedor, para liberarlo, para otorgarlo y para denegarlo.
     También debería tener mensajes para iniciar una elección, para responderle OK, y para avisar que se fue elegido coordinador.
 - Algoritmo centralizado para sincronizar los accesos a los contenedores de helado por parte de los robots: 
     Se elige a un robot como coordinador. Si un robot quiere usar alguno de los contenedores de helado le envía un mensaje de solicitud al coordinador, donde indica qué contenedor quiere     usar, si ningún otro robot lo está usando el coordinador le responde OK y lo deja entrar. En cambio si ya hay algún robot utilizando ese contenedor el coordinador le envía ACK y se        bloquea el solicitante, y se agrega su solicitud a una cola. Cuando el robot que estaba usando el contenedor termina le avisa al coordinador y este saca al solicitante de la cola y le     otorga el contenedor enviándole OK.
@@ -50,9 +51,10 @@ Programación asincrónica para esperar a recibir los helados de gestión de ped
   2. Cuando un proceso recibe el mensaje verifica si está listo para el compromiso y lo escribe en el log y envía su decisión
   3. Si el coordinador recibe todas las respuestas de los procesos diciendo que están listos para comprometerse se efectúa y finaliza el compromiso, si alguno no se puede comprometer se     aborta la preparación del helado.
 En este caso no sé si los procesos deberían ser los propios robots u otra estructura, podrían ser los contenedores de helado que se consultan para saber si hay suficiente de cada gusto para completar el pedido.
-![Diagrama de secuencia](diagrams/secuencia-gateway.jpeg)
+![Diagrama de secuencia](img/diagrams/secuencia-gateway.jpeg)
 
 ## Supuestos
+- 
 
 ## Conclusión
 

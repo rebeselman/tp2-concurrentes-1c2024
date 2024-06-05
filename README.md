@@ -19,12 +19,16 @@
   - [Conclusión](#conclusión)
 
 ## Diseño
-El modelo propuesto consta de tres aplicaciones distintas, las cuáles se comunicarán a través de sockets TCP.
+El modelo propuesto consta de tres aplicaciones distintas, las cuáles tendrán múltiples instancias que se comunicarán a través de sockets TCP.
 
 ![Diagrama del Proyecto](img/diagrams/C4_gridrust.drawio.png)
 
 ### Interfaces de clientes
-Se plantea utilizar programación asincrónica para el procesamiento de los helados en gestión de pedidos. Los mismos se obtendrán de un archivo *jsonl*.
+Simulan las "pantallas" en las cuales los clientes hacen sus pedidos. Su procedimiento será el siguiente:
+1. Procesamiento de los pedidos utilizando programación asincrónica ya que los mismos se obtendrán de un archivo *jsonl*. 
+2. Intentar capturar el pago comunicándose con el gateway de pagos.
+3. En el caso de recibir una respuesta positiva, comunicarse con un robot para que prepare el pedido.
+4. Al recibir la respuesta del robot, en caso de haber podido realizar el pedido correctamente se realiza el cobro efectivo comunicándose nuevamente con el gateway de pagos.
 
 ### Gestión de pedidos con robots
 - **Modelo de actores** para los robots:
@@ -42,17 +46,22 @@ Se elige a un robot como coordinador. Si un robot quiere usar alguno de los cont
   Por lo visto en la bibliografía no hay mucha diferencia entre los algoritmos de elección, no hay ventajas significativas entre elegir uno u otro.
 
 ### Gateway de pagos
-- **Commit de dos fases** para la captura (cuando se toma el pedido) y el pago efectivo (al momento de entrega del pedido). En este caso el compromiso es entregar el helado solicitado.
+- **Commit de dos fases** para la captura (cuando se toma el pedido) y el pago efectivo (al momento de la entrega del pedido). En este caso el compromiso es entregar el helado solicitado. El proceso es el siguiente:
    1. Hay un proceso coordinador que ejecuta la transacción, este escribe en su log _prepare_ indicando que inicia la preparación del pedido y le envía al resto de los procesos _prepare_, para avisarles que estén listos para el compromiso.
   2. Cuando un proceso recibe el mensaje verifica si está listo para el compromiso, lo escribe en su log y envía su decisión.
   3. Si el coordinador recibe todas las respuestas de los procesos diciendo que están listos para comprometerse, se efectúa y finaliza el compromiso. Si alguno no se puede comprometer se     aborta la preparación del pedido.
-  4. Por último, se loguean los datos del pedido junto con el estado final del pago en un _txt_.
     
+Tanto al momento de la captura como del cobro efectivo, se loguean los datos del pedido junto con su estado en un _txt_.
+
 En este caso aún resta definir si los procesos deberían ser los propios robots u otra estructura, podrían ser los contenedores de helado que se consultan para saber si hay suficiente de cada gusto para completar el pedido.
 
 ![Diagrama de secuencia](img/diagrams/secuencia-gateway.jpeg)
 
 ## Supuestos
+- Se define la cantidad de instancias de interfaces en 3.
+- La cantidad de instancias de robots será 5.
+- La aplicación del gateway de pagos nunca se cae.
+- En el caso de que se esté preparando un helado y no haya más stock del gusto a servir (recurso a consumir), se desecha todo lo servido previamente y el pedido queda cancelado.
 - Cada **pedido** posee los siguientes atributos:
   - **id**: clave numérica única para cada uno.
   - **cliente**: datos de quien lo realiza.
@@ -63,7 +72,10 @@ En este caso aún resta definir si los procesos deberían ser los propios robots
 - Cada **producto** tiene los siguientes atributos:
   - **tipo**: puede ser vasito, cucurucho, 1/4 kg, 1/2 kg o 1 kg. 
   - **cantidad**: número de unidades del mismo.
-  - **sabores**: lista de sabores que pueden ser chocolate, frutilla, vainilla, menta y limón. El máximo de sabores para un producto es 3.
+  - **sabores**: lista de sabores que pueden ser chocolate, frutilla, vainilla, menta y limón. El máximo de sabores para cualquier producto es 3.
+<!-- TODO:
+  - Definir que ocurriria en el caso de que se caiga un robot mientras esta preparando un pedido, podria cancelarse o pasarse a otro robot. 
+  - Definir que ocurriria en el caso de que se caiga una interfaz. -->
 
 ## Conclusión
 

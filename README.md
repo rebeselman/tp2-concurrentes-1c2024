@@ -11,29 +11,29 @@
 ## Índice
 - [GridRust](#gridrust)
   - [Índice](#índice)
-  - [Introducción](#introducción)
-  - [Interfaces de Clientes](#interfaces-de-clientes)
-  - [Gestión de Pedidos con robots](#gestión-de-pedidos-con-robots)
-  - [Gateway de Pago](#gateway-de-pago)
+  - [Diseño](#diseño)
+    - [Interfaces de clientes](#interfaces-de-clientes)
+    - [Gestión de pedidos con robots](#gestión-de-pedidos-con-robots)
+    - [Gateway de pagos](#gateway-de-pagos)
   - [Supuestos](#supuestos)
   - [Conclusión](#conclusión)
 
-##  Introducción
-El diseño del modelo consta de tres aplicaciones distintas, las cuáles se comunican a través de sockets.
+## Diseño
+El modelo propuesto consta de tres aplicaciones distintas, las cuáles se comunicarán a través de sockets TCP.
 
 ![Diagrama del Proyecto](img/diagrams/C4_gridrust.drawio.png)
 
-## Interfaces de Clientes
+### Interfaces de clientes
 Se plantea utilizar programación asincrónica para esperar a recibir los helados de gestión de pedidos. Los mismos vendrán de un archivo *jsonl*.
 
-## Gestión de Pedidos con robots
+### Gestión de pedidos con robots
 - Modelo de actores para los robots:
     Tendrían como estado interno el contenedor que están usando o si no están usando ninguno. Los tipos de mensajes serían para solicitar un contenedor, para liberarlo, para otorgarlo y para denegarlo.
     También debería tener mensajes para iniciar una elección, para responderle OK, y para avisar que se fue elegido coordinador.
 - Algoritmo centralizado para sincronizar los accesos a los contenedores de helado por parte de los robots: 
     Se elige a un robot como coordinador. Si un robot quiere usar alguno de los contenedores de helado le envía un mensaje de solicitud al coordinador, donde indica qué contenedor quiere     usar, si ningún otro robot lo está usando el coordinador le responde OK y lo deja entrar. En cambio si ya hay algún robot utilizando ese contenedor el coordinador le envía ACK y se        bloquea el solicitante, y se agrega su solicitud a una cola. Cuando el robot que estaba usando el contenedor termina le avisa al coordinador y este saca al solicitante de la cola y le     otorga el contenedor enviándole OK.
 	
-    Justificación: se cita el libro de Distributed Operating Systems de Tanenbaum; “El algoritmo centralizado es el más sencillo y también el más eficiente. Sólo requiere de tres       mensajes para entrar y salir de una región critica: una solicitud y otorgamiento para entrar y una liberación para salir”. El único problema que puede ocurrir es que falle el               coordinador, pero existen algoritmos para detectar esto y elegir otro.
+    Justificación: se cita el libro de Distributed Operating Systems de Tanenbaum; “El algoritmo centralizado es el más sencillo y también el más eficiente. Sólo requiere de tres mensajes para entrar y salir de una región critica: una solicitud y otorgamiento para entrar y una liberación para salir”. El único problema que puede ocurrir es que falle el coordinador, pero existen algoritmos para detectar esto y elegir otro.
 
 - Algoritmo Bully para elegir robot coordinador al inicio y en caso de que falle:
   Cuando un robot observa que el coordinador ya no responde las solicitudes (por un timeout constante que se define), inicia una elección:
@@ -44,13 +44,13 @@ Se plantea utilizar programación asincrónica para esperar a recibir los helado
   Por lo que dice la bibliografía no hay mucha diferencia entre los algoritmos de elección, no hay ventajas significativas entre elegir uno u otro.
 
 
-## Gateway de Pago
+### Gateway de pagos
 - Commit de dos fases para la captura (cuando se toma el pedido), se arma el helado y el pago efectivo (entrega del helado):
   En este caso el compromiso es entregar el helado solicitado.
    1. Hay un proceso coordinador que ejecuta la transacción, este escribe en su log _prepare_ indicando que inicia la preparación del pedido y le envía al resto de los procesos _prepare_, para avisarle a los demás procesos que estén listos para el compromiso.
   2. Cuando un proceso recibe el mensaje verifica si está listo para el compromiso y lo escribe en el log y envía su decisión.
   3. Si el coordinador recibe todas las respuestas de los procesos diciendo que están listos para comprometerse se efectúa y finaliza el compromiso, si alguno no se puede comprometer se     aborta la preparación del helado.
-  4. En el caso de que se efectúe satisfactoriamente el pago, se loguean los datos del cliente y del pedido en un _txt_.
+  4. Por último, se loguean los datos del cliente y del pedido junto con el estado final del pago en un _txt_.
     
 En este caso no sé si los procesos deberían ser los propios robots u otra estructura, podrían ser los contenedores de helado que se consultan para saber si hay suficiente de cada gusto para completar el pedido.
 
@@ -61,10 +61,10 @@ En este caso no sé si los procesos deberían ser los propios robots u otra estr
   - **id**: clave numérica única para cada uno.
   - **cliente**: datos de quien lo realiza.
   - **items**: lista de productos que lo conforman.
-- Cada **cliente** posee los siguientes atributos:
+- Cada **cliente** cuenta con los siguientes atributos:
   - **id**: clave numérica única para cada uno.
   - **tarjeta de crédito**: los 16 números de la misma en formato string.
-- Cada **producto** posee los siguientes atributos:
+- Cada **producto** tiene los siguientes atributos:
   - **tipo**: puede ser vasito, cucurucho, 1/4 kg, 1/2 kg o 1 kg. 
   - **cantidad**: número de unidades del mismo.
   - **sabores**: lista de sabores que pueden ser chocolate, frutilla, vainilla, menta y limón. El máximo de sabores para un producto es 3.

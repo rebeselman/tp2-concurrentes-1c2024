@@ -19,20 +19,23 @@
   - [Conclusión](#conclusión)
 
 ## Diseño
-El modelo propuesto consta de tres aplicaciones distintas, las cuáles tendrán múltiples instancias que se comunicarán a través de sockets TCP.
+Se tienen tres aplicaciones distintas. Una que modela las pantallas con las que eligen pedidos los clientes, gestión de pedidos (robots que realizan los pedidos) y el gateway de pagos, que es donde se captura y efectiviza el pago. Estas se comunican a través de sockets TCP.
 
 ![Diagrama del Proyecto](img/diagrams/C4_gridrust.drawio.png)
 
 ### Interfaces de clientes
-Simulan las "pantallas" en las cuales los clientes hacen sus pedidos. Su procedimiento será el siguiente:
-1. Procesamiento de los pedidos utilizando programación asincrónica ya que los mismos se obtendrán de un archivo *jsonl*. 
-2. Intentar capturar el pago comunicándose con el gateway de pagos.
-3. En el caso de recibir una respuesta positiva, comunicarse con un robot para que prepare el pedido.
-4. Al recibir la respuesta del robot, en caso de haber podido realizar el pedido correctamente se realiza el cobro efectivo comunicándose nuevamente con el gateway de pagos.
+- Se modela una interfaz de cliente o pantalla como una función que lee de un archivo pedidos simulados y los convierte en [ordenes de pedidos], inicia una transacción que en este caso es un [pedido de helado] (Se utilizaría programación asincrónica para esperar por la respuesta y mientras tanto dar oportunidad a atender otro pedido). Se generan varias instancias (hilos de ejecución) de esta función para simular un número constante de pantallas en la heladería.
+- [Commit de dos fases]: Se tiene un [coordinador] general para todos los pedidos que se hagan por las pantallas que envía un mensaje de prepare a la aplicación de Gestión de Pedidos y a Gateway De pagos, y debería aguardar para que le confirmen de ambos lugares que se va a poder realizar el pedido. Si se confirma la posibilidad del pedido se hace el cobro efectivo y se entrega el pedido satisfactoriamente.
+- Algoritmo: En este caso el compromiso es entregar el helado solicitado;
+  	1.Hay un coordinador que ejecuta la orden de pedido, este escribe en su log prepare indicando que inicia la preparación del pedido y le envía a Gestión de Pedidos y Gateway de 	Pagos el mensaje prepare, para preguntar si pueden confirmar el pedido.
+ 	2. Cuando ambos  reciben el mensaje verifican si pueden efectuar la orden de pedido y lo escriben en el log y envían su decisión.
+	3. Si el coordinador recibe todas las respuestas diciendo que están listos para comprometerse se efectúa y finaliza el compromiso, si alguno no se puede comprometer se aborta la 	preparación de la orden de pedido.
+
 
 ### Gestión de pedidos con robots
 - **Modelo de actores** para los robots:
-tendrán como estado interno el contenedor que están usando o ninguno en el caso contrario. Los tipos de mensajes serán para solicitar, liberar, otorgar y denegar el acceso a un contenedor. También tendrán mensajes para iniciar una elección, para responder _OK_, y para avisar que fue elegido coordinador.
+Tienen como estado interno el contenedor que están usando o si no están usando ninguno. Los tipos de mensajes serían para solicitar un contenedor, para liberarlo, para otorgarlo y para denegarlo. 
+
 - **Algoritmo centralizado** para sincronizar los accesos a los contenedores de helado por parte de los robots:
 Se elige a un robot como coordinador. Si un robot quiere usar alguno de los contenedores de helado le envía un mensaje de solicitud al coordinador, donde indica qué contenedor quiere usar y si ningún otro robot lo está usando el coordinador le responde _OK_ y lo deja entrar. En cambio, si ya hay algún robot utilizando ese contenedor el coordinador le envía _ACK_ y se bloquea el solicitante, agregando su solicitud a una cola. Cuando el robot que estaba usando el contenedor termina le avisa al coordinador y este saca al solicitante de la cola y para otorgarle el acceso al contenedor enviándole _OK_.
 	
@@ -43,17 +46,10 @@ Se elige a un robot como coordinador. Si un robot quiere usar alguno de los cont
   2. Si nadie responde, este gana la elección y se convierte en el coordinador.
   3. Si uno de los robots con un número mayor responde, toma el control y el trabajo del robot que llamó a elecciones termina.
 
-  Por lo visto en la bibliografía no hay mucha diferencia entre los algoritmos de elección, no hay ventajas significativas entre elegir uno u otro.
-
+  Por lo visto en la bibliografía no hay mucha diferencia entre los algoritmos de elección, no hay ventajas significativas entre elegir uno u otro. Por otro lado, podría realizarse la elección con los robots comunicandose entre sí a través de sockets en vez de mensajes.
 ### Gateway de pagos
-- **Commit de dos fases** para la captura (cuando se toma el pedido) y el pago efectivo (al momento de la entrega del pedido). En este caso el compromiso es entregar el helado solicitado. El proceso es el siguiente:
-   1. Hay un proceso coordinador que ejecuta la transacción, este escribe en su log _prepare_ indicando que inicia la preparación del pedido y le envía al resto de los procesos _prepare_, para avisarles que estén listos para el compromiso.
-  2. Cuando un proceso recibe el mensaje verifica si está listo para el compromiso, lo escribe en su log y envía su decisión.
-  3. Si el coordinador recibe todas las respuestas de los procesos diciendo que están listos para comprometerse, se efectúa y finaliza el compromiso. Si alguno no se puede comprometer se     aborta la preparación del pedido.
-    
-Tanto al momento de la captura como del cobro efectivo, se loguean los datos del pedido junto con su estado en un _txt_.
-
-En este caso aún resta definir si los procesos deberían ser los propios robots u otra estructura, podrían ser los contenedores de helado que se consultan para saber si hay suficiente de cada gusto para completar el pedido.
+Sería una aplicación simple que loguea. (cito enunciado)
+Esta aplicación se encargaría de recibir del coordinador que se encuentra en [Interfaces de clientes], mensajes de prepare preguntando si se puede capturar el pago, si la tarjeta no falla (puede fallar con una probabilidad aleatoria) se envía confirmar sino se envía abortar. Si se logra entregar el pedido se realiza el cobro efectivo, sino se cancelaría.
 
 ![Diagrama de secuencia](img/diagrams/secuencia-gateway.jpeg)
 
@@ -76,6 +72,6 @@ En este caso aún resta definir si los procesos deberían ser los propios robots
 <!-- TODO:
   - Definir que ocurriria en el caso de que se caiga un robot mientras esta preparando un pedido, podria cancelarse o pasarse a otro robot. 
   - Definir que ocurriria en el caso de que se caiga una interfaz. -->
-
+![Modelos de dominio](img/diagrams/gridrust.drawio.png)
 ## Conclusión
 

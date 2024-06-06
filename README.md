@@ -52,6 +52,7 @@ Sería una aplicación simple que loguea. (se cita enunciado)
 Esta aplicación se encargaría de recibir del coordinador, que se encuentra en **Interfaces de clientes**, mensajes de prepare preguntando si se puede capturar el pago y si la tarjeta no falla (puede fallar con una probabilidad aleatoria) se envía confirmar sino se envía abortar. Si se logra entregar el pedido se realiza el cobro efectivo, sino se cancelaría.
 
 ## Supuestos
+ ![Modelos de dominio](img/diagrams/gridrust.drawio.png)
 - Se define la cantidad de instancias de interfaces en 3.
 - La cantidad de instancias de robots será 5.
 - La aplicación del gateway de pagos nunca se cae.
@@ -67,7 +68,7 @@ Esta aplicación se encargaría de recibir del coordinador, que se encuentra en 
   - **tipo**: puede ser vasito, cucurucho, 1/4 kg, 1/2 kg o 1 kg. 
   - **cantidad**: número de unidades del mismo.
   - **sabores**: lista de sabores que pueden ser chocolate, frutilla, vainilla, menta y limón. El máximo de sabores para cualquier producto es 3.
-![Modelos de dominio](img/diagrams/gridrust.drawio.png)
+
 <!-- TODO:
   - Definir que ocurriria en el caso de que se caiga un robot mientras esta preparando un pedido, podria cancelarse o pasarse a otro robot. 
   - Definir que ocurriria en el caso de que se caiga una interfaz. -->

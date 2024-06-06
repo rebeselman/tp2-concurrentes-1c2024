@@ -16,7 +16,7 @@
     - [Gestión de pedidos con robots](#gestión-de-pedidos-con-robots)
     - [Gateway de pagos](#gateway-de-pagos)
   - [Supuestos](#supuestos)
-  - [Dudas sobre diseño](#dudas-diseño)
+  - [Dudas sobre diseño](#dudas-sobre-diseño)
 
 ## Diseño
 Se tienen tres aplicaciones distintas. Una que modela las pantallas con las que eligen pedidos los clientes, gestión de pedidos (robots que realizan los pedidos) y el gateway de pagos, que es donde se captura y efectiviza el pago. Estas se comunican a través de sockets TCP.
@@ -25,6 +25,11 @@ Se tienen tres aplicaciones distintas. Una que modela las pantallas con las que 
 
 ### Interfaces de clientes
 - Se modela una interfaz de cliente o pantalla como una función que lee de un archivo pedidos simulados y los convierte en **ordenes de pedidos**, inicia una transacción que en este caso es un **pedido de helado** (Se utilizaría programación asincrónica para esperar por la respuesta y mientras tanto dar oportunidad a atender otro pedido). Se generan varias instancias (hilos de ejecución) de esta función para simular un número constante de pantallas en la heladería.
+<!-- TODO: definir una politica para el procesamiento distribuido del archivo. Por ejemplo podría ser:
+  - Interfaz 1: procesa los pedidos con ids que terminan en 0, 1, 2, 3.
+  - Interfaz 2: procesa los pedidos con ids que terminan en 4, 5, 6.
+  - Interfaz 3: procesa los pedidos con ids que terminan en 7, 8, 9.
+Otra opcion podria ser que cada interfaz tenga su propio jsonl.  -->
 - **Commit de dos fases**: Se tiene un **coordinador** general para todos los pedidos que se hagan por las pantallas que envía un mensaje de prepare a la aplicación de Gestión de Pedidos y a Gateway De pagos, y debería aguardar para que le confirmen de ambos lugares que se va a poder realizar el pedido. Si se confirma la posibilidad del pedido se hace el cobro efectivo y se entrega el pedido satisfactoriamente.
 - (Algoritmo) En este caso el compromiso es entregar el helado solicitado:
 1. Hay un coordinador que ejecuta la orden de pedido, este escribe en su log prepare indicando que inicia la preparación del pedido y le envía a Gestión de Pedidos y Gateway de Pagos el mensaje prepare, para preguntar si pueden confirmar el pedido.
@@ -70,8 +75,8 @@ Esta aplicación se encargaría de recibir del coordinador, que se encuentra en 
   - **sabores**: lista de sabores que pueden ser chocolate, frutilla, vainilla, menta y limón. El máximo de sabores para cualquier producto es 3.
 
 <!-- TODO:
-  - Definir que ocurriria en el caso de que se caiga un robot mientras esta preparando un pedido, podria cancelarse o pasarse a otro robot. 
-  - Definir que ocurriria en el caso de que se caiga una interfaz. -->
+  - Definir que ocurriria en el caso de que se caiga un robot mientras esta preparando un pedido, Podria cancelarse o pasarse a otro robot. 
+  - Definir que ocurriria con el/los pedido/s en el caso de que se caiga una interfaz. -->
 
 ## Dudas sobre diseño
 Todavía no se sabe si debería haber un coordinador para todas las pantallas o por pantalla para realizar la transacción de la orden de pedido.

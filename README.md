@@ -1,7 +1,7 @@
-<center>
+<div align="center">
 
 # GridRust
-</center>
+</div>
 <p align="center">
   <img src="img/grido.png" width="45%">
 &nbsp; &nbsp; &nbsp; &nbsp;
@@ -57,17 +57,16 @@ Se elige a un robot como coordinador. Si un robot quiere usar alguno de los cont
 Será una aplicación simple que loguea (se cita enunciado) en un archivo. Esta aplicación se encargará de recibir del coordinador, que se encuentra en **Interfaces de clientes**, mensajes de prepare preguntando si se puede capturar el pago y si la tarjeta no falla (puede fallar con una probabilidad aleatoria) se envía confirmar sino se envía abortar. Si se logra entregar el pedido se realiza el cobro efectivo, sino se cancelaría.
 
 ## Modelo de dominio
+
  ![Modelos de dominio](img/diagrams/gridrust.drawio.png)
 
 - Cada **pedido** posee los siguientes atributos:
   - **id**: clave numérica única para cada uno.
   - **cliente**: datos de quien lo realiza.
   - **items**: lista de productos que lo conforman.
-
 - Cada **cliente** cuenta con los siguientes atributos:
   - **id**: clave numérica única para cada uno.
   - **tarjeta de crédito**: los 16 números de la misma en formato string.
-
 - Cada **producto** tiene los siguientes atributos:
   - **tipo**: puede ser vasito, cucurucho, 1/4 kg, 1/2 kg o 1 kg. 
   - **cantidad**: número de unidades del mismo.

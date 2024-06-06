@@ -27,13 +27,14 @@ Se tienen tres aplicaciones distintas. Una que modela las pantallas con las que 
 - Se modela una interfaz de cliente o pantalla como una función que lee de un archivo pedidos simulados y los convierte en **ordenes de pedidos**, inicia una transacción que en este caso es un **pedido de helado** (Se utilizaría programación asincrónica para esperar por la respuesta y mientras tanto dar oportunidad a atender otro pedido). Se generan varias instancias (hilos de ejecución) de esta función para simular un número constante de pantallas en la heladería.
 - **Commit de dos fases**: Se tiene un **coordinador** general para todos los pedidos que se hagan por las pantallas que envía un mensaje de prepare a la aplicación de Gestión de Pedidos y a Gateway De pagos, y debería aguardar para que le confirmen de ambos lugares que se va a poder realizar el pedido. Si se confirma la posibilidad del pedido se hace el cobro efectivo y se entrega el pedido satisfactoriamente.
 - (Algoritmo) En este caso el compromiso es entregar el helado solicitado:
-  	1.Hay un coordinador que ejecuta la orden de pedido, este escribe en su log prepare indicando que inicia la preparación del pedido y le envía a Gestión de Pedidos y Gateway de 	Pagos el mensaje prepare, para preguntar si pueden confirmar el pedido.
- 	2. Cuando ambos  reciben el mensaje verifican si pueden efectuar la orden de pedido y lo escriben en el log y envían su decisión.
-	3. Si el coordinador recibe todas las respuestas diciendo que están listos para comprometerse se efectúa y finaliza el compromiso, si alguno no se puede comprometer se aborta la 	preparación de la orden de pedido.
+1. Hay un coordinador que ejecuta la orden de pedido, este escribe en su log prepare indicando que inicia la preparación del pedido y le envía a Gestión de Pedidos y Gateway de Pagos el mensaje prepare, para preguntar si pueden confirmar el pedido.
+2. Cuando ambos reciben el mensaje verifican si pueden efectuar la orden de pedido y lo escriben en el log y envían su decisión.
+3. Si el coordinador recibe todas las respuestas diciendo que están listos para comprometerse se efectúa y finaliza el compromiso, si alguno no se puede comprometer se aborta la 	preparación de la orden de pedido.
 
 ### Gestión de pedidos con robots
+Esta aplicación se comunica con la aplicación **Interfaces de clientes** respondiendo la posibilidad de confirmar un pedido, en caso de que un robot pueda completar el pedido envía confirmar y se entrega.
 - **Modelo de actores** para los robots:
-Tienen como estado interno el contenedor que están usando o si no están usando ninguno. Los tipos de mensajes serían para solicitar un contenedor, para liberarlo, para otorgarlo y para denegarlo. 
+Tienen como estado interno el contenedor que están empleando en caso de estén usando alguno. Los tipos de mensajes serían para solicitar un contenedor, para liberarlo, para otorgarlo y para denegarlo. 
 
 - **Algoritmo centralizado** para sincronizar los accesos a los contenedores de helado por parte de los robots:
 Se elige a un robot como coordinador. Si un robot quiere usar alguno de los contenedores de helado le envía un mensaje de solicitud al coordinador, donde indica qué contenedor quiere usar y si ningún otro robot lo está usando el coordinador le responde _OK_ y lo deja entrar. En cambio, si ya hay algún robot utilizando ese contenedor el coordinador le envía _ACK_ y se bloquea el solicitante, agregando su solicitud a una cola. Cuando el robot que estaba usando el contenedor termina le avisa al coordinador y este saca al solicitante de la cola y para otorgarle el acceso al contenedor enviándole _OK_.
@@ -45,10 +46,10 @@ Se elige a un robot como coordinador. Si un robot quiere usar alguno de los cont
   2. Si nadie responde, este gana la elección y se convierte en el coordinador.
   3. Si uno de los robots con un número mayor responde, toma el control y el trabajo del robot que llamó a elecciones termina.
 
-  Por lo visto en la bibliografía no hay mucha diferencia entre los algoritmos de elección, no hay ventajas significativas entre elegir uno u otro. Por otro lado, podría realizarse la elección con los robots comunicandose entre sí a través de sockets en vez de mensajes.
+  Por lo visto en la bibliografía no hay mucha diferencia entre los algoritmos de elección, no hay ventajas significativas entre elegir uno u otro. Por otro lado, podría realizarse la elección con los robots comunicándose entre sí a través de sockets en vez de mensajes.
 ### Gateway de pagos
-Sería una aplicación simple que loguea. (cito enunciado)
-Esta aplicación se encargaría de recibir del coordinador que se encuentra en [Interfaces de clientes], mensajes de prepare preguntando si se puede capturar el pago, si la tarjeta no falla (puede fallar con una probabilidad aleatoria) se envía confirmar sino se envía abortar. Si se logra entregar el pedido se realiza el cobro efectivo, sino se cancelaría.
+Sería una aplicación simple que loguea. (se cita enunciado)
+Esta aplicación se encargaría de recibir del coordinador, que se encuentra en **Interfaces de clientes**, mensajes de prepare preguntando si se puede capturar el pago y si la tarjeta no falla (puede fallar con una probabilidad aleatoria) se envía confirmar sino se envía abortar. Si se logra entregar el pedido se realiza el cobro efectivo, sino se cancelaría.
 
 ## Supuestos
 - Se define la cantidad de instancias de interfaces en 3.

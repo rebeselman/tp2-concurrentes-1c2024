@@ -1,12 +1,10 @@
 <div align="center">
-
-# GridRust
-</div>
-<p align="center">
   <img src="img/grido.png" width="45%">
 &nbsp; &nbsp; &nbsp; &nbsp;
   <img src="img/rust_crab.png" width="45%">
-</p>
+
+  # GridRust
+</div>
 
 [![Review Assignment Due Date](https://classroom.github.com/assets/deadline-readme-button-24ddc0f5d75046c5622901739e7c5dd533143b0c8e959d652212380cedb1ea36.svg)](https://classroom.github.com/a/PKo6zpFB)
 
@@ -31,14 +29,14 @@ Se tienen tres aplicaciones distintas que se comunican a través de sockets UDP:
 
 ### Interfaces de Clientes
 - Se modela cada interfaz de cliente o pantalla como una función que lee de un archivo pedidos simulados y los convierte en **órdenes de pedidos**, luego inicia una transacción por cada uno que en este caso es un **pedido de helado** (se utilizaría programación asincrónica para esperar por la respuesta y mientras tanto dar oportunidad a atender otro pedido). Se generan varias instancias (como distintos procesos) de esta función para simular un número constante de pantallas en la heladería.
-- **Commit de dos fases**: Se tiene un **coordinador** general para todos los pedidos que se hagan por las pantallas que envía un mensaje de prepare a la aplicación de Gestión de Pedidos y a Gateway De pagos, y debería aguardar para que le confirmen de ambos lugares que se va a poder realizar el pedido. Si se confirma la posibilidad del pedido se hace el cobro efectivo y se entrega el pedido satisfactoriamente.
+- **Commit de dos fases**: Se tiene un **coordinador** general para todos los pedidos que se hagan por las pantallas que envía un mensaje de _prepare_ a la aplicación de Gestión de Pedidos y al Gateway de Pagos, y debería aguardar para que le confirmen de ambos lugares que se va a poder realizar el pedido. Si se confirma la posibilidad del pedido se hace el cobro efectivo y se entrega el pedido satisfactoriamente.
 - (Algoritmo) En este caso el compromiso es entregar el helado solicitado:
-  1. Hay un coordinador que ejecuta la orden de pedido, este escribe en su log prepare indicando que inicia la preparación del pedido y le envía a Gestión de Pedidos y Gateway de Pagos el mensaje prepare, para preguntar si pueden confirmar el pedido.
+  1. Hay un coordinador que ejecuta la orden de pedido, este escribe en su log _prepare_ indicando que inicia la preparación del pedido y le envía a Gestión de Pedidos y Gateway de Pagos el mensaje _prepare_, para preguntar si pueden confirmar el pedido.
   2. Cuando ambos reciben el mensaje verifican si pueden efectuar la orden de pedido y lo escriben en el log y envían su decisión.
   3. Si el coordinador recibe todas las respuestas diciendo que están listos para comprometerse se efectúa y finaliza el compromiso, si alguno no se puede comprometer se aborta la 	preparación de la orden de pedido.
 
 ### Gestión de Pedidos
-Esta aplicación se comunica con la aplicación **Interfaces de clientes** respondiendo la posibilidad de confirmar un pedido, en caso de que un robot pueda completar el pedido envía confirmar y se entrega.
+Esta aplicación se comunica con **Interfaces de clientes** respondiendo la posibilidad de confirmar un pedido, en caso de que un robot pueda completar el pedido envía confirmar y se entrega.
 - **Modelo de actores** para los robots:
 Tienen como estado interno el contenedor que están empleando en caso de estén usando alguno. Los tipos de mensajes serían para solicitar un contenedor, para liberarlo, para otorgarlo y para denegarlo. 
 
@@ -53,8 +51,9 @@ Se elige a un robot como coordinador. Si un robot quiere usar alguno de los cont
   3. Si uno de los robots con un número mayor responde, toma el control y el trabajo del robot que llamó a elecciones termina.
 
   Por lo visto en la bibliografía no hay mucha diferencia entre los algoritmos de elección, no hay ventajas significativas entre elegir uno u otro. Por otro lado, podría realizarse la elección con los robots comunicándose entre sí a través de sockets en vez de mensajes.
+
 ### Gateway de Pagos
-Será una aplicación simple que loguea (se cita enunciado) en un archivo. Esta aplicación se encargará de recibir del coordinador, que se encuentra en **Interfaces de clientes**, mensajes de prepare preguntando si se puede capturar el pago y si la tarjeta no falla (puede fallar con una probabilidad aleatoria) se envía confirmar sino se envía abortar. Si se logra entregar el pedido se realiza el cobro efectivo, sino se cancelaría.
+Será una aplicación simple que loguea (se cita enunciado) en un archivo. Se tendrá una sola instancia de la misma que se encargará de recibir del coordinador (que se encuentra en **Interfaces de Clientes**) mensajes _prepare_ preguntando si se puede capturar el pago (la tarjeta puede fallar con una probabilidad aleatoria). Su respuesta será _ready_ o _abort_ dependiendo el caso. Luego, si se logra entregar el pedido correctamente se recibirá un mensaje _commit_ y se realizará el cobro efectivo.
 
 ## Modelo de dominio
 
@@ -76,7 +75,7 @@ Será una aplicación simple que loguea (se cita enunciado) en un archivo. Esta 
 - Se define la cantidad de instancias de interfaces de clientes en 3.
 - La cantidad de instancias de robots será 5.
 - La aplicación del Gateway de Pagos nunca se cae.
-- En el caso de que se esté preparando un helado y no haya más stock del gusto a servir (recurso a consumir), se desecha todo lo servido previamente y el pedido queda cancelado.
+- En el caso de que un robot esté preparando un helado y no haya más stock del gusto a servir, se desecha todo lo servido previamente y el pedido queda cancelado.
 
 ## Dudas sobre diseño
 - Determinar si debería haber un coordinador para todas las pantallas o por pantalla para realizar la transacción de la orden de pedido.

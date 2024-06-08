@@ -21,9 +21,9 @@
 
 ## Diseño
 Se tienen tres aplicaciones distintas que se comunican a través de sockets UDP:
-- **Interfaces de Clientes**: modela las pantallas con las que los clientes hacen sus pedidos.
-- **Gestión de Pedidos**: simula los robots que preparan los helados. 
-- **Gateway de Pagos**: es donde se captura y luego efectiviza el pago. 
+- **Interfaces de Clientes**: Modela las pantallas con las que los clientes hacen sus pedidos.
+- **Gestión de Pedidos**: Simula los robots que preparan los helados. 
+- **Gateway de Pagos**: Es donde se captura y luego efectiviza el pago. 
 
 ![Diagrama del Proyecto](img/diagrams/C4_gridrust.drawio.png)
 
@@ -36,21 +36,18 @@ Se tienen tres aplicaciones distintas que se comunican a través de sockets UDP:
   3. Si el coordinador recibe todas las respuestas diciendo que están listos para comprometerse se efectúa y finaliza el compromiso, si alguno no se puede comprometer se aborta la 	preparación de la orden de pedido.
 
 ### Gestión de Pedidos
-Esta aplicación se comunica con **Interfaces de clientes** respondiendo la posibilidad de confirmar un pedido, en caso de que un robot pueda completar el pedido envía confirmar y se entrega.
+Esta aplicación se comunica con **Interfaces de Clientes**, recibiendo órdenes de pedidos y respondiendo si fue posible por el robot preparar el pedido para su entrega. Se plantea utilizar las siguientes herramientas de concurrencia:
 - **Modelo de actores** para los robots:
-Tienen como estado interno el contenedor que están empleando en caso de estén usando alguno. Los tipos de mensajes serían para solicitar un contenedor, para liberarlo, para otorgarlo y para denegarlo. 
-
-- **Algoritmo centralizado** para sincronizar los accesos a los contenedores de helado por parte de los robots:
-Se elige a un robot como coordinador. Si un robot quiere usar alguno de los contenedores de helado le envía un mensaje de solicitud al coordinador, donde indica qué contenedor quiere usar y si ningún otro robot lo está usando el coordinador le responde _OK_ y lo deja entrar. En cambio, si ya hay algún robot utilizando ese contenedor el coordinador le envía _ACK_ y se bloquea el solicitante, agregando su solicitud a una cola. Cuando el robot que estaba usando el contenedor termina le avisa al coordinador y este saca al solicitante de la cola y para otorgarle el acceso al contenedor enviándole _OK_.
+Tienen como estado interno el contenedor que están empleando en caso de estén usando alguno. Los tipos de mensajes serán para solicitar un contenedor, liberarlo, y para otorgar o denegar su acceso. 
+- **Algoritmo centralizado** para sincronizar los accesos a los contenedores de helado por parte de los robots: Se elige a un robot como coordinador. Si alguno quiere utilizar alguno de los contenedores de helado le envía un mensaje de solicitud al coordinador, en donde indica qué contenedor quiere usar. Si ningún otro robot lo está usando el coordinador le responde _OK_ y lo deja entrar. En cambio, si ya hay algún robot utilizando ese contenedor el coordinador, le envía _ACK_ y se bloquea el solicitante agregando su solicitud a una cola. Cuando el robot que estaba usando el contenedor termina, le avisa al coordinador y este saca al solicitante de la cola para otorgarle el acceso enviándole _OK_.
 	
-  Justificación: se cita el libro de Distributed Operating Systems de Tanenbaum: "El algoritmo centralizado es el más sencillo y también el más eficiente. Sólo requiere de tres mensajes para entrar y salir de una región critica: una solicitud y otorgamiento para entrar y una liberación para salir". El único problema que puede ocurrir es que falle el coordinador, pero existen algoritmos para detectar esto y elegir otro.
-
+  Justificación: se cita el libro de _Distributed Operating Systems_ de Tanenbaum: "El algoritmo centralizado es el más sencillo y también el más eficiente. Sólo requiere de tres mensajes para entrar y salir de una región critica: una solicitud y otorgamiento para entrar y una liberación para salir". El único problema que puede ocurrir es que falle el coordinador, pero existen algoritmos para detectar esto y elegir otro.
 - **Algoritmo Bully** para elegir robot coordinador al inicio y en caso de que falle (cuando un robot observa que el coordinador ya no responde las solicitudes por un timeout que se define), inicia una elección:
-  1. El robot envía _ELECTION_ a los demás procesos con un número mayor.
-  2. Si nadie responde, este gana la elección y se convierte en el coordinador.
-  3. Si uno de los robots con un número mayor responde, toma el control y el trabajo del robot que llamó a elecciones termina.
+  1. El robot envía _ELECTION_ a los demás procesos con un id mayor.
+  2. Si nadie responde, este gana la elección y se convierte en el coordinador. Se anuncia enviando un mensaje _COORDINATOR_ a todo el resto.
+  3. Si alguno de los robots con id mayor le responde _OK_, este repite el mismo proceso y el trabajo del robot que llamó a elecciones termina.
 
-  Por lo visto en la bibliografía no hay mucha diferencia entre los algoritmos de elección, no hay ventajas significativas entre elegir uno u otro. Por otro lado, podría realizarse la elección con los robots comunicándose entre sí a través de sockets en vez de mensajes.
+  Por lo visto en la bibliografía no hay mucha diferencia entre los algoritmos de elección, no hay ventajas significativas entre elegir uno u otro.
 
 ### Gateway de Pagos
 Será una aplicación simple que loguea (se cita enunciado) en un archivo. Se tendrá una sola instancia de la misma que se encargará de recibir del coordinador (que se encuentra en **Interfaces de Clientes**) mensajes _prepare_ preguntando si se puede capturar el pago (la tarjeta puede fallar con una probabilidad aleatoria). Su respuesta será _ready_ o _abort_ dependiendo el caso. Luego, si se logra entregar el pedido correctamente se recibirá un mensaje _commit_ y se realizará el cobro efectivo.

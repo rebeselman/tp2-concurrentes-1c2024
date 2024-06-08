@@ -1,0 +1,27 @@
+@startuml abort sequences
+actor Client
+participant ClientInterface
+participant PaymentGateway
+participant Robot
+
+Client -> ClientInterface: new order
+ClientInterface -> PaymentGateway: capture payment (//prepare//)
+note right 
+card rejected
+end note
+PaymentGateway --> ClientInterface: //abort//
+ClientInterface --> Client: order rejected
+
+Client -> ClientInterface: new order
+ClientInterface -> PaymentGateway: capture payment (//prepare//)
+PaymentGateway --> ClientInterface: //ready//
+ClientInterface -> Robot: //prepare// order
+note right
+ran out of a 
+flavor stock
+end note
+Robot --> ClientInterface: //abort// 
+ClientInterface -> PaymentGateway: //abort//
+ClientInterface --> Client: order rejected
+
+@enduml

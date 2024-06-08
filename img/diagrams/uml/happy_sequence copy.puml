@@ -1,0 +1,16 @@
+@startuml happy sequence
+actor Client
+participant ClientInterface
+participant PaymentGateway
+participant Robot
+
+Client -> ClientInterface: new order
+ClientInterface -> PaymentGateway: capture payment (//prepare//)
+PaymentGateway --> ClientInterface: //ready//
+ClientInterface -> Robot: //prepare// order
+Robot --> ClientInterface: //ready// 
+ClientInterface -> PaymentGateway: //commit//
+ClientInterface -> Robot: //commit//
+ClientInterface --> Client: order ready
+
+@enduml

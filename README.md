@@ -13,11 +13,12 @@
   - [Índice](#índice)
   - [Diseño](#diseño)
     - [Interfaces de Clientes](#interfaces-de-clientes)
+      - [Resiliencia en las pantallas](#resiliencia-en-las-pantallas)
     - [Gestión de Pedidos](#gestión-de-pedidos)
+      - [Resiliencia en los robots](#resiliencia-en-los-robots)
     - [Gateway de Pagos](#gateway-de-pagos)
-  - [Diagramas de secuencia](#diagramas-de-secuencia)
-  - [Modelo de dominio](#modelo-de-dominio)
   - [Comunicación entre procesos](#comunicación-entre-procesos)
+  - [Modelo de dominio](#modelo-de-dominio)
   - [Supuestos](#supuestos)
   - [Dudas sobre diseño](#dudas-sobre-diseño)
 
@@ -63,15 +64,19 @@ Tienen como estado interno el contenedor que están empleando, en caso de que es
 ### Gateway de Pagos
 Será una aplicación simple que _loguea_, tal como indica el enunciado, en un archivo. Se tendrá una sola instancia de la misma que se encargará de recibir mensajes _prepare_  del coordinador (que se encuentra en **Interfaces de Clientes**), preguntando si se puede capturar el pago (la tarjeta puede fallar con una probabilidad aleatoria). Su respuesta será _ready_ o _abort_ dependiendo el caso. Luego, si se logra entregar el pedido correctamente, se recibirá un mensaje _commit_ y se realizará el cobro efectivo.
 
-## Diagramas de secuencia
-- Pedido realizado correctamente:
+## Comunicación entre procesos
+Para asegurar una comunicación confiable entre los procesos usando sockets UDP, cada mensaje enviado esperará una respuesta del receptor. En caso de no recibir respuesta en un tiempo determinado, se considerará que se perdió el paquete y se reenviará el mensaje. Se utilizará un protocolo de comunicación simple, donde cada mensaje tendrá un formato específico.
+
+A continuación se presentan diagramas de secuencia que muestran el intercambio de mensajes entre las entidades en distintos escenarios:
+
+- Pedido realizado correctamente
   
 ![Secuencia feliz](img/diagrams/happy_sequence.png)
 
-- Pedidos cancelados por captura del pago rechazada y por falta de stock de algún sabor:
+- Pedidos cancelados por captura del pago rechazada y por falta de stock de algún sabor
   
 ![Secuencia abort](img/diagrams/abort_sequences.png)
-
+ 
 ## Modelo de dominio
 
  ![Modelos de dominio](img/diagrams/gridrust.drawio.png)
@@ -88,10 +93,6 @@ Será una aplicación simple que _loguea_, tal como indica el enunciado, en un a
   - **cantidad**: número de unidades del mismo.
   - **sabores**: lista de sabores que pueden ser chocolate, frutilla, vainilla, menta y limón. El máximo de sabores para cualquier producto es 3.
 
-## Comunicación entre procesos
-Para asegurar una comunicación confiable entre los procesos usando sockets UDP, cada mensaje enviado esperará una respuesta del receptor. En caso de no recibir respuesta en un tiempo determinado, se considerará que se perdió el paquete y se reenviará el mensaje. Se utilizará un protocolo de comunicación simple, donde cada mensaje tendrá un formato específico.
-
- 
 ## Supuestos
 - Se define la cantidad de instancias de interfaces de clientes en 3.
 - La cantidad de instancias de robots será 5.
@@ -100,13 +101,11 @@ Para asegurar una comunicación confiable entre los procesos usando sockets UDP,
 - Los puertos de las pantallas y los robots son conocidos. 
 
 ## Dudas sobre diseño
-- Determinar si debería haber un coordinador para todas las pantallas o por pantalla para realizar la transacción de la orden de pedido.
+- Determinar si debería haber un coordinador de todas las pantallas para el traspaso de pedidos de una interfaz caída.
 - Definir una política para el procesamiento distribuido del archivo. Por ejemplo podría ser:
   - Interfaz 1: procesa los pedidos con ids que terminan en 0, 1, 2, 3.
   - Interfaz 2: procesa los pedidos con ids que terminan en 4, 5, 6.
   - Interfaz 3: procesa los pedidos con ids que terminan en 7, 8, 9.
 
   Otra opción podría ser que cada interfaz tenga su propio _jsonl_.
-- Definir que ocurriría en el caso de que se caiga un robot mientras está preparando un pedido. Podría cancelarse o pasarse a otro robot. 
-- Definir que ocurriría con el/los pedido/s en el caso de que se caiga una interfaz.
 - Definir protocolo/formato de los mensajes entre las aplicaciones.

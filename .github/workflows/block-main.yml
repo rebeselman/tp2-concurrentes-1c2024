@@ -1,0 +1,17 @@
+name: Block main branch
+
+on: 
+  push:
+    branches:
+      - main
+
+jobs:
+  no-direct-commits:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check for direct commits
+        run: |
+          if [ "$(git rev-parse --abbrev-ref HEAD)" == "main" ]; then
+            echo "Direct commits to main are not allowed."
+            exit 1
+          fi

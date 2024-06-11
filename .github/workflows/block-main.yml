@@ -9,6 +9,9 @@ jobs:
   no-direct-commits:
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+
       - name: Check for direct commits
         run: |
           if [ "$(git rev-parse --abbrev-ref HEAD)" == "main" ]; then

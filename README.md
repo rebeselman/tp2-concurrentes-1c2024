@@ -100,12 +100,4 @@ A continuación se presentan diagramas de secuencia que muestran el intercambio 
 - En el caso de que un robot esté preparando un helado y no haya más stock del gusto a servir, se desecha todo lo servido previamente y el pedido queda cancelado.
 - Los puertos de las pantallas y los robots son conocidos. 
 
-## Dudas sobre diseño
-- Determinar si debería haber un coordinador de todas las pantallas para el traspaso de pedidos de una interfaz caída.
-- Definir una política para el procesamiento distribuido del archivo. Por ejemplo podría ser:
-  - Interfaz 1: procesa los pedidos con ids que terminan en 0, 1, 2, 3.
-  - Interfaz 2: procesa los pedidos con ids que terminan en 4, 5, 6.
-  - Interfaz 3: procesa los pedidos con ids que terminan en 7, 8, 9.
 
-  Otra opción podría ser que cada interfaz tenga su propio _jsonl_.
-- Definir protocolo/formato de los mensajes entre las aplicaciones.

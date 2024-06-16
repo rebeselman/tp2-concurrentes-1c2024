@@ -14,7 +14,7 @@ pub struct Order {
 
 
 impl Order {
-    /// To obtein the id of this order
+    /// To obtain the id of this order
     pub fn id(&self)-> usize {
         return self.order_id
     }

@@ -87,7 +87,8 @@ Será una aplicación simple que _loguea_, tal como indica el enunciado, en un a
 ## Protocolo de envío de mensajes a Interfaces de clientes
 Tanto el Gateway de Pagos y Gestión de Pedidos utilizarán el siguiente formato para el envío de mensajes:
 			
-   					{order_id}\n{message}\0
+   					{message}\n{payload}\0
+Y el payload es la _Order_ serializada en formato JSON.
 Donde el mensaje podrá ser de tipo:
 - Ready: indica que se pudo realizar ya sea el pedido o la captura del pago.
 - Abort: indica que no se puedo completar el pedido o que falló la tarjeta de crédito del cliente.

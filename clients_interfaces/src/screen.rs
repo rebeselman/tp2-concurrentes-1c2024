@@ -2,7 +2,7 @@
 
 use std::{collections::HashMap, error::Error, fs::File, io::{BufRead, BufReader}, mem::size_of, net::UdpSocket, sync::{Arc, Condvar, Mutex}, time::{Duration, Instant}};
 use crate::{order::Order, order_state::OrderState};
-const _TIMEOUT: Duration = Duration::from_secs(10);
+const TIMEOUT: Duration = Duration::from_secs(10);
 const PAYMENT_GATEWAY_IP: &str = "127.0.0.1:1024";
 const ORDER_MANAGEMENT_IP: &str = "127.0.0.1:8080";
 const STAKEHOLDERS: usize = 2;
@@ -96,7 +96,7 @@ impl Screen {
         let order_serialized = serde_json::to_vec(order)?;
         let mut message:Vec<u8> = b"prepare\n".to_vec();
         message.extend_from_slice(&order_serialized); 
-        self.broadcast_and_wait(&message, order.id(), OrderState::Ready)
+        self.broadcast_and_wait(&message, OrderState::Ready)
     }
 
     /// This represents the second phase of the two-phase commit protocol. The screen sends a
@@ -107,7 +107,7 @@ impl Screen {
         let order_serialized = serde_json::to_vec(order)?;
         let mut message:Vec<u8> = b"commit\n".to_vec();
         message.extend_from_slice(&order_serialized);
-        self.broadcast_and_wait(&message, order.id(), OrderState::Commit)
+        self.broadcast_and_wait(&message, OrderState::Commit)
     }
 
     /// This method is called when the screen receives an "abort" message from the payment gateway or the order management in
@@ -117,26 +117,44 @@ impl Screen {
     /// - The order management sends an "abort" message to the screen because the order can't be prepared for some reason.
     fn abort(&mut self, order: &Order) -> Result<bool, Box<dyn Error>> {
         self.log.insert(order.id(), OrderState::Abort);
-        let order_serialized = serde_json::to_vec(order).unwrap();
+        let order_serialized = serde_json::to_vec(order)?;
         let mut message:Vec<u8> = b"abort\n".to_vec();
         message.extend_from_slice(&order_serialized);
-        self.broadcast_and_wait(&message, order.id(), OrderState::Abort)
+        self.broadcast_and_wait(&message, OrderState::Abort)
     }
 
     /// This method sends a message to the payment gateway and the order management and waits for a response.
     /// The screen waits for a expected response from the payment gateway and the order management.
-    fn broadcast_and_wait(&self, message: &[u8], id: usize, expected: OrderState) -> Result<bool, Box<dyn Error>> {
+    fn broadcast_and_wait(&self, message: &[u8], expected: OrderState) -> Result<bool, Box<dyn Error>> {
         let mut responses = self.responses.0.lock().map_err(|e|e.to_string())?;
         *responses = vec![OrderState::Wait(Instant::now()); STAKEHOLDERS];
-        
-        self.socket.send_to(message, PAYMENT_GATEWAY_IP)?;
-        // self.socket.send_to(message, ORDER_MANAGEMENT_IP)?;
-        //     let mut responses = self.responses.1.wait_timeout_while(responses, _TIMEOUT, |re| )
-        //     Ok(responses.iter().all(|r| r == &expected))
+        self.socket.send_to(&message, PAYMENT_GATEWAY_IP)?;
+        self.socket.send_to(&message, ORDER_MANAGEMENT_IP)?;
+        loop {
+            let responses_res = self.responses.1.wait_timeout_while(self.responses.0.lock().map_err(|e|e.to_string())?, TIMEOUT,
+                                                                |responses| responses.iter().any(|state| {
+                                                                    let now = Instant::now();
+                                                                    match state {
+                                                                        OrderState::Wait(since) => now.duration_since(*since) < TIMEOUT,
+                                                                        _ => false
+                                                                    }
+                                                                }));
+            let guard = responses_res.map_err(|e|e.to_string())?;
+            if guard.1.timed_out() {
+                let now = Instant::now();
+                if guard.0.iter().any(|state| match state {
+                    OrderState::Wait(since) => now.duration_since(*since) > TIMEOUT,
+                    _ => false
+                }) {
+                    println!("[COORDINATOR] global timeout");
+                    return Ok(false)
+                }
+            } else {
+                return Ok(guard.0.iter().all(|state| *state == expected))
+            }
+        }
 
-        return Ok(true);
     }
-
     /// This method receives messages that could be from either the payment gateway or the order management.
     /// And modifies the order state in the log accordingly.
     /// Should receive a message in this format

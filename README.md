@@ -37,7 +37,7 @@ Se modela cada interfaz de cliente o pantalla, la cual lee de un archivo pedidos
   2. En el caso de pago capturado satisfactoriamente, envía _prepare_ a Gestión de Pedidos. De lo contrario aborta la transacción.
   3. Si el pedido es preparado correctamente, el coordinador efectúa y finaliza el compromiso enviando un mensaje _commit_ al robot y al Gateway de Pagos para efectivizar el cobro. Caso contrario se aborta el pedido y se cancela el pago.
 
-## Protocolo de envío de mensajes a Gestión de Pedidos y Gateway de Pagos
+### Protocolo de envío de mensajes a Gestión de Pedidos y Gateway de Pagos
 Las pantallas enviarán tanto a Gestion de Pedidos como a Gateway de pago mensajes con el siguiente formato:
 
 					{mensaje}\n{payload}\0
@@ -84,15 +84,15 @@ Tienen como estado interno el contenedor que están empleando, en caso de que es
 ### Gateway de Pagos
 Será una aplicación simple que _loguea_, tal como indica el enunciado, en un archivo. Se tendrá una sola instancia de la misma que se encargará de recibir mensajes _prepare_  del coordinador (que se encuentra en **Interfaces de Clientes**), preguntando si se puede capturar el pago (la tarjeta puede fallar con una probabilidad aleatoria). Su respuesta será _ready_ o _abort_ dependiendo el caso. Luego, si se logra entregar el pedido correctamente, se recibirá un mensaje _commit_ y se realizará el cobro efectivo.
 
-### Protocolo de envío de mensajes a Interfaces de clientes
+## Protocolo de envío de mensajes a Interfaces de clientes
 Tanto el Gateway de Pagos y Gestión de Pedidos utilizarán el siguiente formato para el envío de mensajes:
 			
    					{order_id}\n{message}\0
 Donde el mensaje podrá ser de tipo:
-	- Ready: indica que se pudo realizar ya sea el pedido o la captura del pago.
- 	- Abort: indica que no se puedo completar el pedido o que falló la tarjeta de crédito del cliente.
- 	- Finished: es la respuesta que se la da al cliente cuando se llega a la segunda fase de la transacción, sería la respuesta al mensaje de **Commit**.
-  	- Keepalive: indica que se está intentando terminar el pedido de helado o la captura.
+- Ready: indica que se pudo realizar ya sea el pedido o la captura del pago.
+- Abort: indica que no se puedo completar el pedido o que falló la tarjeta de crédito del cliente.
+- Finished: es la respuesta que se la da al cliente cuando se llega a la segunda fase de la transacción, sería la respuesta al mensaje de **Commit**.
+- Keepalive: indica que se está intentando terminar el pedido de helado o la captura.
 
 ## Comunicación entre procesos
 Para asegurar una comunicación confiable entre los procesos usando sockets UDP, cada mensaje enviado esperará una respuesta del receptor. En caso de no recibir respuesta en un tiempo determinado, se considerará que se perdió el paquete y se reenviará el mensaje. Se utilizará un protocolo de comunicación simple, donde cada mensaje tendrá un formato específico.

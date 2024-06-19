@@ -71,7 +71,7 @@ fn make_order(robot_id: usize, socket: &UdpSocket, server_addr: &str, order: &mu
         println!("Flavors needed: {:?}", flavors_needed);
         let mut buf = [0; 1024];
         let flavors_to_request: Vec<IceCreamFlavor> = flavors_needed.iter().filter_map(|(flavor, &completed)| if !completed { Some(flavor.clone()) } else { None }).collect();
-        make_request(socket, server_addr, &Request::SolicitarAcceso { robot_id, gustos: flavors_to_request })?;
+        make_request(socket, server_addr, &Request::SolicitarAcceso { robot_id, flavors: flavors_to_request })?;
         match socket.recv_from(&mut buf) {
             Ok((amt, _)) => read_coordinator_answer(robot_id, socket, server_addr, &mut buf, &amt, order, &mut flavors_needed)?,
             Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => println!("No response from coordinator, retrying..."),
@@ -116,7 +116,7 @@ fn read_coordinator_answer(robot_id: usize, socket: &UdpSocket, server_addr: &st
 
 fn send_release_request(flavor: &IceCreamFlavor, robot_id: usize, socket: &UdpSocket, server_addr: &str) -> io::Result<()> {
     println!("[Robot {}] libero contenedor de {:?}", robot_id, flavor);
-    let release_request = Request::LiberarAcceso { robot_id, gusto: flavor.clone() };
+    let release_request = Request::LiberarAcceso { robot_id, flavor: flavor.clone() };
     socket.send_to(&serde_json::to_vec(&release_request)?, server_addr)?;
     let mut buf = [0; 1024];
     while let Ok((len, _)) = socket.recv_from(&mut buf) {

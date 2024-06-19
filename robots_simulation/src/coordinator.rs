@@ -1,89 +1,80 @@
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::net::UdpSocket;
-use std::sync::Mutex;
 use std::sync::Arc;
-use tokio::sync::Semaphore;
-use std::time::Duration;
 
-#[derive(Serialize, Deserialize, Debug)]
-enum Request {
-    SolicitarAcceso { robot_id: usize, gusto: String },
-    LiberarAcceso { robot_id: usize, gusto: String },
-}
+use actix::{Actor, AsyncContext, Context, Handler};
+use tokio::net::UdpSocket;
+use tokio::sync::Mutex;
 
-#[derive(Serialize, Deserialize, Debug)]
-enum Response {
-    AccesoConcedido,
-    AccesoDenegado(String),
-}
+use robots_simulation::{ContainerType, IceCreamFlavor, Item, Request, Response};
 
 struct Coordinator {
-    contenedores: HashMap<String, (bool, Arc<Semaphore>)>,
+    containers: HashMap<String, Arc<Mutex<bool>>>,
+    socket: Arc<UdpSocket>,
 }
 
-impl Coordinator {
-    fn new(gustos: Vec<String>) -> Self {
-        let contenedores = gustos.into_iter().map(|gusto| (gusto, (true, Arc::new(Semaphore::new(1))))).collect();
-        Coordinator { contenedores }
-    }
+impl Actor for Coordinator {
+    type Context = Context<Self>;
+}
 
-    fn handle_request(&mut self, request: Request) -> Response {
-        match request {
-            Request::SolicitarAcceso { robot_id, gusto } => {
-                if let Some((available, semaphore)) = self.contenedores.get_mut(&gusto) {
-                    if *available {
-                        let _permit = semaphore.acquire();
-                        *available = false;
-                        println!("[Coordinator] Robot {} accedió al contenedor de {}", robot_id, gusto);
+impl Handler<Request> for Coordinator {
+    type Result = ();
+
+    fn handle(&mut self, msg: Request, ctx: &mut Self::Context) {
+        println!("Received message: {:?}", msg);
+        let socket = self.socket.clone();
+
+        match msg {
+            Request::SolicitarAcceso { robot_id, gusto, robot_addr } => {
+                println!("Robot {} is requesting access to container {}", robot_id, gusto);
+                let arc = self.containers.get(&gusto).unwrap().clone();
+                let fut = async move {
+                    let mut access = arc.lock().await;
+                    if !*access {
+                        *access = true;
                         Response::AccesoConcedido
                     } else {
-                        println!("[Coordinator] Robot {} no pudo acceder al contenedor de {} (ocupado)", robot_id, gusto);
-                        Response::AccesoDenegado("Contenedor ocupado".into())
+                        Response::AccesoDenegado("Container already in use".into())
                     }
-                } else {
-                    println!("El contenedor de {} no existe", gusto);
-                    Response::AccesoDenegado("Contenedor no existe".into())
-                }
+                };
+
+                tokio::spawn(async move {
+                    let response = fut.await;
+                    let response = serde_json::to_vec(&response).unwrap();
+                    println!("Sending response to robot {}", robot_addr);
+                    socket.send_to(&response, robot_addr).await.unwrap();
+                });
             }
-            Request::LiberarAcceso { robot_id, gusto } => {
-                if let Some((available, _semaphore)) = self.contenedores.get_mut(&gusto) {
-                    if *available == false {
-                        *available = true;
-                        println!("[Coordinator] Robot {} liberó contenedor de {}", robot_id, gusto);
-                        Response::AccesoConcedido
-                    } else {
-                        println!("El contenedor de {} no está ocupado", gusto);
-                        Response::AccesoDenegado("Contenedor no existe".into())
-                    }
-                } else {
-                    println!("El contenedor de {} no existe", gusto);
-                    Response::AccesoDenegado("Contenedor no existe".into())
-                }
+            Request::LiberarAcceso { robot_id, gusto, robot_addr } => {
+                let arc = self.containers.get(&gusto).unwrap().clone();
+                tokio::spawn(async move {
+                    let mut access = arc.lock().await;
+                    *access = false;
+                    println!("Access released for container {}", gusto);
+                });
             }
-        }
-    }
-
-    fn start(&mut self, addr: &str) {
-        let socket = UdpSocket::bind(addr).expect("Failed to bind address");
-        println!("Coordinator escuchando en {}", addr);
-
-        let mut buf = [0; 1024];
-
-        loop {
-            let (amt, src) = socket.recv_from(&mut buf).expect("Failed to receive data");
-
-            let request: Request = serde_json::from_slice(&buf[..amt]).expect("Failed to parse request");
-            let response = self.handle_request(request);
-
-            let response = serde_json::to_vec(&response).expect("Failed to serialize response");
-            socket.send_to(&response, src).expect("Failed to send response");
         }
     }
 }
 
-fn main() {
-    let gustos = vec!["vainilla".to_string(), "chocolate".to_string(), "frutilla".to_string(), "limón".to_string(), "menta".to_string()];
-    let mut coordinador = Coordinator::new(gustos);
-    coordinador.start("127.0.0.1:8080");
+#[actix_rt::main]
+async fn main() {
+    let socket = UdpSocket::bind("127.0.0.1:8080").await.unwrap();
+    let socket = Arc::new(socket);
+
+    let gustos = vec!["vainilla".to_string(), "chocolate".to_string(), "frutilla".to_string(), "limón".to_string(), "menta".to_string(), "dulce de leche".to_string(), "granizado".to_string(), "banana split".to_string(), "tramontana".to_string(), "chocolate amargo".to_string(), "menta granizada".to_string(), "americana".to_string()];
+    let containers: HashMap<_, _> = gustos.into_iter().map(|gusto| (gusto, Arc::new(Mutex::new(false)))).collect();
+
+    let coordinator = Coordinator {
+        containers,
+        socket: socket.clone(),
+    }.start();
+
+    let mut buf = [0; 1024];
+    loop {
+        let (len, addr) = socket.recv_from(&mut buf).await.unwrap();
+        println!("Received message from {}", addr);
+        let msg: Request = serde_json::from_slice(&buf[..len]).unwrap();
+
+        coordinator.send(msg).await.unwrap();
+    }
 }

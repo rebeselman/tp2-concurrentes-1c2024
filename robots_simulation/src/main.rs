@@ -1,6 +1,7 @@
 mod robot;
 mod ice_cream_container;
 mod container_state;
+mod lib;
 
 use std::process::{Command, Child};
 use std::env;

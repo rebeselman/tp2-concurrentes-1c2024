@@ -1,14 +1,19 @@
+use std::collections::HashMap;
+use std::net::SocketAddr;
 use actix::Message;
 use serde::{Deserialize, Serialize};
+
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Item {
     pub container: ContainerType,
     pub units: u32,
     pub flavors: Vec<IceCreamFlavor>,
+    pub flavor_status: HashMap<IceCreamFlavor, bool>,
+    pub is_completed: bool,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, Hash, Eq, PartialEq)]
 pub enum IceCreamFlavor {
     Chocolate,
     Strawberry,
@@ -26,15 +31,30 @@ pub enum ContainerType {
     QuarterKilo,
 }
 
-#[derive(Serialize, Deserialize, Message, Debug)]
-#[rtype(result = "()")]
+#[derive(Serialize, Deserialize, Debug)]
 pub enum Request {
-    SolicitarAcceso { robot_id: usize, gusto: String, robot_addr: String },
-    LiberarAcceso { robot_id: usize, gusto: String, robot_addr: String},
+    SolicitarAcceso { robot_id: usize, gusto: IceCreamFlavor },
+    LiberarAcceso { robot_id: usize, gusto: IceCreamFlavor },
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub enum Response {
     AccesoConcedido,
     AccesoDenegado(String),
+}
+
+#[derive(Message)]
+#[rtype(result = "()")]
+pub struct AccessRequest {
+    pub robot_id: usize,
+    pub gusto: IceCreamFlavor,
+    pub addr: SocketAddr,
+}
+
+#[derive(Message)]
+#[rtype(result = "()")]
+pub struct ReleaseRequest {
+    pub robot_id: usize,
+    pub gusto: IceCreamFlavor,
+    pub addr: SocketAddr,
 }

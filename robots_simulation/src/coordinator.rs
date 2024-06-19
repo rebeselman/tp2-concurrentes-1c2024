@@ -5,10 +5,10 @@ use actix::{Actor, AsyncContext, Context, Handler};
 use tokio::net::UdpSocket;
 use tokio::sync::Mutex;
 
-use robots_simulation::{ContainerType, IceCreamFlavor, Item, Request, Response};
+use robots_simulation::{ IceCreamFlavor, Request, Response, AccessRequest, ReleaseRequest};
 
 struct Coordinator {
-    containers: HashMap<String, Arc<Mutex<bool>>>,
+    containers: HashMap<IceCreamFlavor, Arc<Mutex<bool>>>,
     socket: Arc<UdpSocket>,
 }
 
@@ -16,43 +16,47 @@ impl Actor for Coordinator {
     type Context = Context<Self>;
 }
 
-impl Handler<Request> for Coordinator {
+impl Handler<AccessRequest> for Coordinator {
     type Result = ();
 
-    fn handle(&mut self, msg: Request, ctx: &mut Self::Context) {
-        println!("Received message: {:?}", msg);
+    fn handle(&mut self, msg: AccessRequest, _ctx: &mut Self::Context) {
         let socket = self.socket.clone();
+        let AccessRequest { robot_id, gusto, addr } = msg;
 
-        match msg {
-            Request::SolicitarAcceso { robot_id, gusto, robot_addr } => {
-                println!("Robot {} is requesting access to container {}", robot_id, gusto);
-                let arc = self.containers.get(&gusto).unwrap().clone();
-                let fut = async move {
-                    let mut access = arc.lock().await;
-                    if !*access {
-                        *access = true;
-                        Response::AccesoConcedido
-                    } else {
-                        Response::AccesoDenegado("Container already in use".into())
-                    }
-                };
+        println!("Robot {} is requesting access to container {:?}", robot_id, gusto);
+        let arc = self.containers.get(&gusto).unwrap().clone();
+        let fut = async move {
+            let mut access = arc.lock().await;
+            if !*access {
+                *access = true;
+                Response::AccesoConcedido
+            } else {
+                Response::AccesoDenegado("Container already in use".into())
+            }
+        };
 
-                tokio::spawn(async move {
-                    let response = fut.await;
-                    let response = serde_json::to_vec(&response).unwrap();
-                    println!("Sending response to robot {}", robot_addr);
-                    socket.send_to(&response, robot_addr).await.unwrap();
-                });
-            }
-            Request::LiberarAcceso { robot_id, gusto, robot_addr } => {
-                let arc = self.containers.get(&gusto).unwrap().clone();
-                tokio::spawn(async move {
-                    let mut access = arc.lock().await;
-                    *access = false;
-                    println!("Access released for container {}", gusto);
-                });
-            }
-        }
+        tokio::spawn(async move {
+            let response = fut.await;
+            let response = serde_json::to_vec(&response).unwrap();
+            println!("Sending response to robot {}", addr);
+            socket.send_to(&response, addr).await.unwrap();
+        });
+    }
+}
+
+impl Handler<ReleaseRequest> for Coordinator {
+    type Result = ();
+
+    fn handle(&mut self, msg: ReleaseRequest, _ctx: &mut Self::Context) {
+        let ReleaseRequest { robot_id: _robot_id, gusto, addr: _addr } = msg;
+
+        println!("Releasing access for container {:?}", gusto);
+        let arc = self.containers.get(&gusto).unwrap().clone();
+        tokio::spawn(async move {
+            let mut access = arc.lock().await;
+            *access = false;
+            println!("Access released for container {:?}", gusto);
+        });
     }
 }
 
@@ -60,9 +64,15 @@ impl Handler<Request> for Coordinator {
 async fn main() {
     let socket = UdpSocket::bind("127.0.0.1:8080").await.unwrap();
     let socket = Arc::new(socket);
+    let flavors = vec![
+        IceCreamFlavor::Chocolate,
+        IceCreamFlavor::Strawberry,
+        IceCreamFlavor::Vanella,
+        IceCreamFlavor::Mint,
+        IceCreamFlavor::Lemon,
+    ];
 
-    let gustos = vec!["vainilla".to_string(), "chocolate".to_string(), "frutilla".to_string(), "limón".to_string(), "menta".to_string(), "dulce de leche".to_string(), "granizado".to_string(), "banana split".to_string(), "tramontana".to_string(), "chocolate amargo".to_string(), "menta granizada".to_string(), "americana".to_string()];
-    let containers: HashMap<_, _> = gustos.into_iter().map(|gusto| (gusto, Arc::new(Mutex::new(false)))).collect();
+    let containers: HashMap<_, _> = flavors.into_iter().map(|gusto| (gusto, Arc::new(Mutex::new(false)))).collect();
 
     let coordinator = Coordinator {
         containers,
@@ -75,6 +85,23 @@ async fn main() {
         println!("Received message from {}", addr);
         let msg: Request = serde_json::from_slice(&buf[..len]).unwrap();
 
-        coordinator.send(msg).await.unwrap();
+        match msg {
+            Request::SolicitarAcceso { robot_id, gusto } => {
+                let access_request = AccessRequest {
+                    robot_id,
+                    gusto,
+                    addr,
+                };
+                coordinator.send(access_request).await.unwrap();
+            }
+            Request::LiberarAcceso { robot_id, gusto } => {
+                let release_request = ReleaseRequest {
+                    robot_id,
+                    gusto,
+                    addr,
+                };
+                coordinator.send(release_request).await.unwrap();
+            }
+        }
     }
 }

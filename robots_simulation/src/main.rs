@@ -4,8 +4,6 @@ mod container_state;
 mod lib;
 
 use std::process::{Command, Child};
-use std::env;
-use std::thread;
 
 const NUM_ROBOTS: usize = 4;
 

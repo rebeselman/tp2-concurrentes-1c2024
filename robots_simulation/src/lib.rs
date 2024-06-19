@@ -8,7 +8,7 @@ pub struct Item {
     pub flavors: Vec<IceCreamFlavor>,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum IceCreamFlavor {
     Chocolate,
     Strawberry,
@@ -17,7 +17,7 @@ pub enum IceCreamFlavor {
     Lemon,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum ContainerType {
     Cup,
     Cone,

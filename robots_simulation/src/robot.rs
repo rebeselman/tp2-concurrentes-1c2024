@@ -74,21 +74,24 @@ fn main() {
         // let (len, addr) = socket.recv_from(&mut buf).unwrap();
         // println!("Received message from {}", addr);
         // Get flavors needed for all items in order
-        make_order(robot_id, &addr, &socket, server_addr, order);
+        make_order(robot_id, &socket, server_addr, order);
+        println!("Order completed: {:?}", order);
     }
 }
 
-fn make_order(robot_id: usize, addr: &String, socket: &UdpSocket, server_addr: &str, order: &mut Vec<Item>) {
+fn make_order(robot_id: usize, socket: &UdpSocket, server_addr: &str, order: &mut Vec<Item>) {
     let flavors: HashSet<IceCreamFlavor> = order.iter().flat_map(|item| item.flavors.clone()).collect();
     println!("Flavors needed: {:?}", flavors);
     let mut flavors_needed: HashMap<IceCreamFlavor, bool> = flavors.iter().map(|flavor| (flavor.clone(), false)).collect();
 
     // Se podría cambiar esto a que la orden esté completa
     while flavors_needed.iter().any(|(_, completed)| !completed) {
-        let flavor = flavors_needed.iter().find(|(_, completed)| !**completed).expect("No flavors left").0.clone();
+        // Filter flavors needed based on the values of the map
+        let flavors_to_request: Vec<IceCreamFlavor> = flavors_needed.iter().filter(|(_, completed)| !**completed).map(|(flavor, _)| flavor.clone()).collect();
+        println!("Requesting flavors: {:?}", flavors_to_request);
         let request = Request::SolicitarAcceso {
             robot_id,
-            gusto: flavor.clone()
+            gustos: flavors_to_request
         };
 
         make_request(&socket, server_addr, &request);
@@ -96,7 +99,7 @@ fn make_order(robot_id: usize, addr: &String, socket: &UdpSocket, server_addr: &
         let mut buf = [0; 1024];
         match socket.recv_from(&mut buf) {
             Ok((amt, _)) => {
-                read_coordinator_answer(&flavor, robot_id, addr.clone(), &socket, server_addr, &mut buf, &amt, order, &mut flavors_needed);
+                read_coordinator_answer(robot_id, &socket, server_addr, &mut buf, &amt, order, &mut flavors_needed);
             }
             Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
                 println!("No response from coordinator, retrying...");
@@ -114,28 +117,66 @@ fn build() -> usize {
     robot_id
 }
 
-fn read_coordinator_answer(sabor: &IceCreamFlavor, robot_id: usize, addr: String, socket: &UdpSocket, server_addr: &str, buf: &mut [u8; 1024], amt: &usize, order: &mut Vec<Item>, x: &mut HashMap<IceCreamFlavor, bool>) {
+fn read_coordinator_answer(robot_id: usize, socket: &UdpSocket, server_addr: &str, buf: &mut [u8; 1024], amt: &usize, order: &mut Vec<Item>, x: &mut HashMap<IceCreamFlavor, bool>) {
     let response: Response = serde_json::from_slice(&buf[..*amt]).expect("Failed to parse response");
     match response {
-        Response::AccesoConcedido => {
-            add_flavor_to_ice_cream(sabor, robot_id);
-            mark_flavor_as_completed(order, sabor);
-            send_release_request(sabor, robot_id, addr, socket, server_addr);
-            if let Some(completed) = x.get_mut(sabor) {
+        Response::AccesoConcedido(flavor) => {
+            add_flavor_to_ice_cream(&flavor, robot_id);
+            send_release_request(&flavor, robot_id, socket, server_addr);
+            mark_flavor_as_completed(order, &flavor);
+            if let Some(completed) = x.get_mut(&flavor) {
                 *completed = true;
             }
         },
-        Response::AccesoDenegado(err) => println!("[Robot {}] No pudé acceder al contenedor de {:?}: {}", robot_id, sabor, err),
+        Response::AccesoDenegado(err) => {
+            println!("[Robot {}] No pudé acceder a nigún contenedor {}", robot_id, err);
+            // Use recv_from socket blocking
+            loop {
+                let mut buf = [0; 1024];
+                match socket.recv_from(&mut buf) {
+                    Ok((amt, _)) => {
+                        read_coordinator_answer(robot_id, socket, server_addr, &mut buf, &amt, order, x);
+                    }
+                    Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
+                        continue;
+                    }
+                    Err(e) => {
+                        println!("Failed to receive response: {}", e);
+                        break;
+                    }
+                }
+            }
+        },
+        _ => {}
     }
 }
 
-fn send_release_request(sabor: &IceCreamFlavor, robot_id: usize, addr: String, socket: &UdpSocket, server_addr: &str) {
+fn send_release_request(sabor: &IceCreamFlavor, robot_id: usize, socket: &UdpSocket, server_addr: &str) {
+    println!("[Robot {}] libero contenedor de {:?}", robot_id, sabor);
     let release_request = Request::LiberarAcceso {
         robot_id,
         gusto: sabor.clone()
     };
     let release_request = serde_json::to_vec(&release_request).expect("Failed to serialize release request");
     socket.send_to(&release_request, server_addr).expect("Failed to send release request");
+    let mut buf = [0; 1024];
+    let mut received_ack = false;
+    while !received_ack {
+        let (len, _addr) = socket.recv_from(&mut buf).expect("Failed to receive response");
+        let response: Response = serde_json::from_slice(&buf[..len]).expect("Failed to parse response");
+        received_ack = match response {
+            Response::ACK => {
+                println!("[Robot {}] ACK recibido", robot_id);
+                break
+            },
+            _ => {
+                println!("[Robot {}] No se recibió ACK", robot_id);
+                false
+            }
+        };
+    }
+    println!("[Robot {}] Liberación de contenedor de {:?} completada", robot_id, sabor);
+
 }
 
 fn add_flavor_to_ice_cream(sabor: &IceCreamFlavor, robot_id: usize) {
@@ -150,8 +191,8 @@ fn mark_flavor_as_completed(order: &mut Vec<Item>, sabor: &IceCreamFlavor) {
             *completed = true;
         }
         if item.flavor_status.values().all(|&completed| completed) {
-            println!("Item completed: {:?}", item);
             item.is_completed = true;
+            println!("Item completed: {:?}", item);
         }
     }
 }

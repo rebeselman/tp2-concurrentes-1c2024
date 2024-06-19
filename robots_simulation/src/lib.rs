@@ -33,21 +33,22 @@ pub enum ContainerType {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub enum Request {
-    SolicitarAcceso { robot_id: usize, gusto: IceCreamFlavor },
+    SolicitarAcceso { robot_id: usize, gustos: Vec<IceCreamFlavor> },
     LiberarAcceso { robot_id: usize, gusto: IceCreamFlavor },
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub enum Response {
-    AccesoConcedido,
+    AccesoConcedido(IceCreamFlavor),
     AccesoDenegado(String),
+    ACK,
 }
 
 #[derive(Message)]
 #[rtype(result = "()")]
 pub struct AccessRequest {
     pub robot_id: usize,
-    pub gusto: IceCreamFlavor,
+    pub gustos: Vec<IceCreamFlavor>,
     pub addr: SocketAddr,
 }
 

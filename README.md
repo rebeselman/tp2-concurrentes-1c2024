@@ -18,9 +18,11 @@
       - [Resiliencia en los robots](#resiliencia-en-los-robots)
     - [Gateway de Pagos](#gateway-de-pagos)
   - [Comunicación entre procesos](#comunicación-entre-procesos)
+    - [Protocolos de mensajes](#protocolos-de-mensajes)
+      - [Mensajes de Interfaces de Clientes a Gestión de Pedidos y a Gateway de Pagos](#mensajes-de-interfaces-de-clientes-a-gestión-de-pedidos-y-a-gateway-de-pagos)
+      - [Mensajes de Gestión de Pedidos y Gateway de Pagos a Interfaces de Clientes](#mensajes-de-gestión-de-pedidos-y-gateway-de-pagos-a-interfaces-de-clientes)
   - [Modelo de dominio](#modelo-de-dominio)
   - [Supuestos](#supuestos)
-  - [Dudas sobre diseño](#dudas-sobre-diseño)
 
 ## Diseño
 Se tienen tres aplicaciones distintas que se comunican a través de sockets UDP:
@@ -36,26 +38,6 @@ Se modela cada interfaz de cliente o pantalla, la cual lee de un archivo pedidos
   1. El coordinador que ejecuta la orden de pedido escribe en su log _prepare_ indicando que inicia la preparación del pedido y le envía a Gateway de Pagos el mensaje _prepare_, para preguntar si puede capturar el pago.
   2. En el caso de pago capturado satisfactoriamente, envía _prepare_ a Gestión de Pedidos. De lo contrario aborta la transacción.
   3. Si el pedido es preparado correctamente, el coordinador efectúa y finaliza el compromiso enviando un mensaje _commit_ al robot y al Gateway de Pagos para efectivizar el cobro. Caso contrario se aborta el pedido y se cancela el pago.
-
-### Protocolo de envío de mensajes a Gestión de Pedidos y Gateway de Pagos
-Las pantallas enviarán tanto a Gestion de Pedidos como a Gateway de pago mensajes con el siguiente formato:
-
-					{mensaje}\n{payload}\0
-     
-Donde el payload es la orden serializada en formato JSON:
-pub struct Order {
-    order_id: usize,
-    client_id: usize,
-    credit_card: String,
-    items: Vec<Item>
-}
-El mensaje puede ser de tres tipos: PREPARE, COMMIT O ABORT
-- Commit: Cuando se le entrega al cliente el helado se le envía a ambas aplicaciones.
-- Prepare: Se envía al principio a Gestión de Pedidos y Gateway de Pagos.
-- Abort: Se envía en caso de que falle alguna de las partes de la transacción.
-Por lo tanto se mantendría esta estructura a nivel global entre las tres aplicaciones
-
-
 
 #### Resiliencia en las pantallas
 
@@ -84,17 +66,6 @@ Tienen como estado interno el contenedor que están empleando, en caso de que es
 ### Gateway de Pagos
 Será una aplicación simple que _loguea_, tal como indica el enunciado, en un archivo. Se tendrá una sola instancia de la misma que se encargará de recibir mensajes _prepare_  del coordinador (que se encuentra en **Interfaces de Clientes**), preguntando si se puede capturar el pago (la tarjeta puede fallar con una probabilidad aleatoria). Su respuesta será _ready_ o _abort_ dependiendo el caso. Luego, si se logra entregar el pedido correctamente, se recibirá un mensaje _commit_ y se realizará el cobro efectivo.
 
-## Protocolo de envío de mensajes a Interfaces de clientes
-Tanto el Gateway de Pagos y Gestión de Pedidos utilizarán el siguiente formato para el envío de mensajes:
-			
-   					{message}\n{payload}\0
-Y el payload es la _Order_ serializada en formato JSON.
-Donde el mensaje podrá ser de tipo:
-- Ready: indica que se pudo realizar ya sea el pedido o la captura del pago.
-- Abort: indica que no se puedo completar el pedido o que falló la tarjeta de crédito del cliente.
-- Finished: es la respuesta que se la da al cliente cuando se llega a la segunda fase de la transacción, sería la respuesta al mensaje de **Commit**.
-- Keepalive: indica que se está intentando terminar el pedido de helado o la captura.
-
 ## Comunicación entre procesos
 Para asegurar una comunicación confiable entre los procesos usando sockets UDP, cada mensaje enviado esperará una respuesta del receptor. En caso de no recibir respuesta en un tiempo determinado, se considerará que se perdió el paquete y se reenviará el mensaje. Se utilizará un protocolo de comunicación simple, donde cada mensaje tendrá un formato específico.
 
@@ -107,7 +78,41 @@ A continuación se presentan diagramas de secuencia que muestran el intercambio 
 - Pedidos cancelados por captura del pago rechazada y por falta de stock de algún sabor
   
 ![Secuencia abort](img/diagrams/abort_sequences.png)
- 
+
+### Protocolos de mensajes
+#### Mensajes de Interfaces de Clientes a Gestión de Pedidos y a Gateway de Pagos
+Las pantallas enviarán tanto a Gestión de Pedidos como a Gateway de Pagos mensajes con el siguiente formato:
+
+					{mensaje}\n{payload}\0
+     
+Donde el payload es la orden serializada en formato JSON:
+```
+pub struct Order {  
+  order_id: usize,  
+  client_id: usize,  
+  credit_card: String,  
+  items: Vec<Item>  
+}
+```
+
+El mensaje puede ser de tres tipos:
+- Prepare: Se envía al principio a Gestión de Pedidos y a Gateway de Pagos.
+- Commit: Cuando se le entrega al cliente el helado se le envía a ambas aplicaciones.
+- Abort: Se envía en caso de que falle alguna de las partes de la transacción.
+Por lo tanto, se mantiene esta estructura a nivel global entre las tres aplicaciones
+
+#### Mensajes de Gestión de Pedidos y Gateway de Pagos a Interfaces de Clientes
+Tanto el Gateway de Pagos como Gestión de Pedidos utilizarán el siguiente formato para el envío de mensajes:
+			
+   					{message}\n{payload}\0
+El payload es la _Order_ serializada en formato JSON.
+El mensaje podrá ser de tipo:
+- Ready: indica que se pudo realizar ya sea el pedido o la captura del pago.
+- Abort: indica que no se pudo preparar el pedido o que falló la tarjeta de crédito del cliente.
+- Finished: es la respuesta que se le da al cliente cuando se llega a la segunda fase de la transacción, es la respuesta al mensaje de **Commit**.
+- Keepalive: indica que se está intentando terminar el pedido de helado o la captura.
+
+
 ## Modelo de dominio
 
  ![Modelos de dominio](img/diagrams/gridrust.drawio.png)
@@ -131,12 +136,3 @@ A continuación se presentan diagramas de secuencia que muestran el intercambio 
 - En el caso de que un robot esté preparando un helado y no haya más stock del gusto a servir, se desecha todo lo servido previamente y el pedido queda cancelado.
 - Los puertos de las pantallas y los robots son conocidos. 
 
-## Dudas sobre diseño
-- Determinar si debería haber un coordinador de todas las pantallas para el traspaso de pedidos de una interfaz caída.
-- Definir una política para el procesamiento distribuido del archivo. Por ejemplo podría ser:
-  - Interfaz 1: procesa los pedidos con ids que terminan en 0, 1, 2, 3.
-  - Interfaz 2: procesa los pedidos con ids que terminan en 4, 5, 6.
-  - Interfaz 3: procesa los pedidos con ids que terminan en 7, 8, 9.
-
-  Otra opción podría ser que cada interfaz tenga su propio _jsonl_.
-- Definir protocolo/formato de los mensajes entre las aplicaciones.

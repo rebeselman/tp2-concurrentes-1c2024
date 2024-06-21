@@ -4,4 +4,4 @@ pub mod container_type;
 pub mod ice_cream_flavor;
 pub mod order_state;
 pub mod screen;
-
+pub mod generate_orders;

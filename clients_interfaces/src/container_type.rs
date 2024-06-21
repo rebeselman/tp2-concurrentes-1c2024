@@ -2,11 +2,20 @@
 
 use serde::{Deserialize, Serialize};
 // no se cómo traducir esto a inglés :D
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub enum ContainerType {
     Cup,
     Cone,
     OneKilo,
     HalfKilo,
     QuarterKilo,
+}
+
+
+
+impl ContainerType {
+    /// Returns all the possible values of ContainerType
+    pub fn values()-> Vec<ContainerType> {
+        return vec![ContainerType::Cup, ContainerType::Cone, ContainerType::OneKilo, ContainerType::HalfKilo, ContainerType::QuarterKilo]
+    }
 }

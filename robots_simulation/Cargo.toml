@@ -20,4 +20,4 @@ path = "src/coordinator.rs"
 
 [[bin]]
 name = "robot"
-path = "src/robot.rs"
+path = "src/start_robot.rs"

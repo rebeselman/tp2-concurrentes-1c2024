@@ -1,13 +1,14 @@
 use std::net::UdpSocket;
 use std::io;
+use serde::{Deserialize, Serialize};
 use gateway_payment::order::Order;
 
+
 fn main() -> io::Result<()> {
-    let socket = UdpSocket::bind("127.0.0.1:1024")?; // Bind to the same address as the payment gateway
+    let socket = UdpSocket::bind("127.0.0.1:8080")?; // Bind to the same address as the payment gateway
     let mut buf = [0; 1024];
 
     loop {
-        let mut order_id = 1;
         println!("Waiting for a message from the screen...");
         let (amt, src) = socket.recv_from(&mut buf)?;
 

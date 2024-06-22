@@ -157,7 +157,7 @@ impl Screen {
     /// <order_id>\n<response>
     fn receiver(&self) -> Result<(), Box<dyn Error>> {
         loop {
-            let mut buf = [0; size_of::<usize>() + 1];
+            let mut buf = [0; 1024];
             let (size, from) = self.socket.recv_from(&mut buf)?;
             let message = String::from_utf8_lossy(&buf[..size]);
             println!("Received message: {}", message);

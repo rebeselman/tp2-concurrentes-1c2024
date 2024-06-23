@@ -9,5 +9,5 @@ use super::{container_type::ContainerType, ice_cream_flavor::IceCreamFlavor};
 pub struct Item {
     container: ContainerType,
     units: u32,
-    flavors: Vec<IceCreamFlavor>
+    flavors: Vec<IceCreamFlavor>,
 }

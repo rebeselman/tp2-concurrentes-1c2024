@@ -1,12 +1,14 @@
-use tokio::{fs::{File, OpenOptions}, io::AsyncWriteExt};
+use tokio::{
+    fs::{File, OpenOptions},
+    io::AsyncWriteExt,
+};
 
 use crate::message::Message;
 
 const LOG_FILE_PATH: &str = "log.txt";
 
-
 pub struct Logger {
-    file: File
+    file: File,
 }
 
 impl Logger {
@@ -21,12 +23,11 @@ impl Logger {
     }
 
     pub async fn log(&mut self, message: &dyn Message) -> Result<(), String> {
-        let log_entry = message.log()?;
+        let log_entry = message.log_entry()?;
         self.file
             .write_all(log_entry.as_bytes())
             .await
             .map_err(|e| e.to_string())?;
         Ok(())
     }
-
 }

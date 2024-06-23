@@ -8,5 +8,5 @@ pub enum IceCreamFlavor {
     Strawberry,
     Vanilla,
     Mint,
-    Lemon
+    Lemon,
 }

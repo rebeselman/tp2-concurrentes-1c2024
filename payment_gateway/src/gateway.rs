@@ -6,7 +6,6 @@ use crate::message;
 
 const PAYMENT_GATEWAY_IP: &str = "127.0.0.1:1024";
 
-
 async fn handle_messages(mut logger: Logger) -> io::Result<()> {
     let socket = UdpSocket::bind(PAYMENT_GATEWAY_IP).await?;
     println!("[Payment Gateway] Listening on: {}", socket.local_addr()?);
@@ -20,24 +19,33 @@ async fn handle_messages(mut logger: Logger) -> io::Result<()> {
             Ok(message) => {
                 println!(
                     "[Payment Gateway] Received message {} from {}",
-                    message.to_string(),
+                    message.type_to_string(),
                     addr
                 );
 
-                let response = message.process();
-                socket.send_to(&response, addr).await?;
-                
+                match message.process() {
+                    Ok(response) => {
+                        socket.send_to(&response, addr).await?;
+                    }
+                    Err(e) => eprintln!("[Payment Gateway] Error processing message: {}", e),
+                }
+
                 if let Err(e) = logger.log(&*message).await {
                     eprintln!("[Payment Gateway] Error logging message: {}", e);
                 }
             }
             Err(e) => {
-                eprintln!("[Payment Gateway] Error deserializing message: {}", e);
+                eprintln!(
+                    "[Payment Gateway] Error deserializing message from {}: {} ",
+                    addr, e
+                );
             }
         }
     }
 }
 
+/// Gateway's entry point.
+/// Creates an async logger and calls the main function over a tokio runtime.
 pub fn run() -> Result<(), String> {
     let runtime = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
 

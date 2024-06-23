@@ -7,14 +7,14 @@ pub mod item;
 
 #[derive(Deserialize, Serialize, Debug)]
 pub struct Order {
-    _order_id: i32,
-    _client_id: i32,
-    _credit_card_number: String,
-    _items: Vec<Item>
+    order_id: i32,
+    client_id: i32,
+    credit_card_number: String,
+    items: Vec<Item>
 }
 
 impl Default for Order {
     fn default() -> Order {
-        Self { _order_id: -1, _client_id: -1, _credit_card_number: "".to_string(), _items: Vec::new() }
+        Self { order_id: -1, client_id: -1, credit_card_number: "".to_string(), items: Vec::new() }
     }
 }

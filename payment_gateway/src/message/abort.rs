@@ -14,7 +14,7 @@ impl Abort {
 }
 
 impl Message for Abort {
-    fn process_message(&self) -> Vec<u8> {
+    fn process(&self) -> Vec<u8> {
         todo!()
     }
     
@@ -24,5 +24,11 @@ impl Message for Abort {
 
     fn to_string(&self) -> String {
         "abort".to_string()
+    }
+
+    fn log(&self) -> Result<String, String> {
+        let order_serialized = serde_json::to_string(&self.order).map_err(|e| e.to_string())?;
+        let log_entry = format!("{} {}\n", self.to_string(), order_serialized);
+        Ok(log_entry)
     }
 }

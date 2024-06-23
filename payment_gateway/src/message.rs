@@ -9,11 +9,13 @@ pub mod commit;
 pub mod prepare;
 
 pub trait Message {
-    fn process_message(&self) -> Vec<u8>;
+    fn process(&self) -> Vec<u8>;
 
     fn add_order(&mut self, order: Order);
 
     fn to_string(&self) -> String;
+
+    fn log(&self) -> Result<String, String>;
 }
 
 pub fn deserialize_message(message: String) -> Result<Box<dyn Message>, String> {

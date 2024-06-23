@@ -1,7 +1,3 @@
-use std::net::SocketAddr;
-
-use std::net::UdpSocket;
-
 use crate::order::Order;
 
 use super::Message;
@@ -18,11 +14,15 @@ impl Abort {
 }
 
 impl Message for Abort {
-    fn process_message(&mut self, _socket: &UdpSocket, _addr: SocketAddr) {
+    fn process_message(&self) -> Vec<u8> {
         todo!()
     }
     
     fn add_order(&mut self, order: Order) {
         self.order = order
+    }
+
+    fn to_string(&self) -> String {
+        "abort".to_string()
     }
 }

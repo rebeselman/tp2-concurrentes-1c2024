@@ -1,13 +1,11 @@
-use std::net::SocketAddr;
-
 use rand::Rng;
-use std::net::UdpSocket;
 
 use crate::order::Order;
 
 use super::Message;
 
 const CAPTURE_PROBABILITY: f64 = 0.9;
+
 
 #[derive(Default)]
 pub struct Prepare {
@@ -23,7 +21,7 @@ impl Prepare {
 }
 
 impl Message for Prepare {
-    fn process_message(&mut self, socket: &UdpSocket, addr: SocketAddr) {
+    fn process_message(&self) -> Vec<u8> {
         let order_serialized = serde_json::to_vec(&self.order).unwrap();
         let mut message;
 
@@ -33,13 +31,17 @@ impl Message for Prepare {
         } else {
             message = b"abort\n".to_vec();
         }
+
         message.extend_from_slice(&order_serialized);
         message.push(0u8);
-
-        let _ = socket.send_to(&message, addr);
+        message
     }
 
     fn add_order(&mut self, order: Order) {
         self.order = order
+    }
+
+    fn to_string(&self) -> String {
+        "prepare".to_string()
     }
 }

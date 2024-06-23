@@ -1,6 +1,9 @@
+use std::net::SocketAddr;
+
 use abort::Abort;
 use commit::Commit;
 use prepare::Prepare;
+use std::net::UdpSocket;
 
 use crate::order::Order;
 
@@ -9,34 +12,27 @@ pub mod commit;
 pub mod prepare;
 
 pub trait Message {
-    fn process_message(&mut self) {}
+    fn process_message(&mut self, _socket: &UdpSocket, _addr: SocketAddr) {}
 
     fn add_order(&mut self, _order: Order) {}
 }
 
-pub fn deserialize_message(string: String) -> Result<Box<dyn Message>, String> {
-    let words: Vec<&str> = string.split_whitespace().collect();
+pub fn deserialize_message(message: String) -> Result<Box<dyn Message>, String> {
+    let mut parts = message.split('\n');
     
-    if words.len() < 4 {
+    if parts.clone().count() < 2 {
         return Err("Incomplete message".to_owned());
     }
-    
-    let mut message: Box<dyn Message> = match words[0].trim() {
-        "abort" => Box::new(Abort::new()),
-        "commit" => Box::new(Commit::new()),
-        "prepare" => Box::new(Prepare::new()),
+
+    let message_type = parts.next();
+    let mut message: Box<dyn Message> = match message_type {
+        Some("abort") => Box::new(Abort::new()),
+        Some("commit") => Box::new(Commit::new()),
+        Some("prepare") => Box::new(Prepare::new()),
         _ => return Err("Unknown message".to_owned()),
     };
     
-    let order_id = words[1].trim().to_string();
-    let client_id = words[2].trim().to_string();
-    let credit_card_number = words[3].trim().to_string();
-
-    let order = Order::new(
-        order_id.clone(),
-        client_id.clone(),
-        credit_card_number.clone(),
-    );
+    let order: Order = serde_json::from_str(&parts.next().unwrap()).unwrap();
 
     message.add_order(order);
     Ok(message)

@@ -1,30 +1,20 @@
-use crate::order_state::OrderState;
+use item::Item;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug)]
+pub mod container_type;
+pub mod ice_cream_flavor;
+pub mod item;
+
+#[derive(Deserialize, Serialize, Debug)]
 pub struct Order {
     _order_id: i32,
     _client_id: i32,
     _credit_card_number: String,
-    state: OrderState,
-}
-
-impl Order {
-    pub fn new(order_id: String, client_id: String, credit_card_number: String) -> Self {
-        Self {
-            _order_id: order_id.parse::<i32>().unwrap(),
-            _client_id: client_id.parse::<i32>().unwrap(),
-            _credit_card_number: credit_card_number,
-            state: OrderState::Pending,
-        }
-    }
-
-    pub fn update_state(&mut self, new_state: OrderState) {
-        self.state = new_state;
-    }
+    _items: Vec<Item>
 }
 
 impl Default for Order {
     fn default() -> Order {
-        Self { _order_id: -1, _client_id: -1, _credit_card_number: "".to_string(), state: OrderState::Pending }
+        Self { _order_id: -1, _client_id: -1, _credit_card_number: "".to_string(), _items: Vec::new() }
     }
 }

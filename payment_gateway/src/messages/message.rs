@@ -16,7 +16,7 @@ pub trait Message {
 
     /// Returns a vector of bytes representing the respond message.
     /// The format will be:
-    /// <order_id>\n<message_type>
+    /// {order_id}\n{message_type}
     fn process(&self) -> Vec<u8> {
         format!(
             "{}\n{}",

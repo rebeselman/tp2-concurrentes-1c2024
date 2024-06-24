@@ -2,8 +2,7 @@ use tokio::{
     fs::{File, OpenOptions},
     io::AsyncWriteExt,
 };
-
-use crate::message::Message;
+use crate::messages::message::Message;
 
 const LOG_FILE_PATH: &str = "log.txt";
 

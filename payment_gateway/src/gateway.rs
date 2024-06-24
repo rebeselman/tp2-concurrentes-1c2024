@@ -1,11 +1,16 @@
 use tokio::io;
 use tokio::net::UdpSocket;
-
 use crate::logger::Logger;
-use crate::message;
+use crate::messages::message;
 
 const PAYMENT_GATEWAY_IP: &str = "127.0.0.1:1024";
 
+/// Asynchronously handles incoming messages on a UDP socket, processes them,
+/// sends responses back, and logs each message.
+///
+/// # Errors
+///
+/// Returns an `io::Error` if there's an issue with the socket operations or logging.
 async fn handle_messages(mut logger: Logger) -> io::Result<()> {
     let socket = UdpSocket::bind(PAYMENT_GATEWAY_IP).await?;
     println!("[Payment Gateway] Listening on: {}", socket.local_addr()?);
@@ -25,6 +30,14 @@ async fn handle_messages(mut logger: Logger) -> io::Result<()> {
 
                 match message.process() {
                     Ok(response) => {
+                        println!(
+                            "[Payment Gateway] Sending message {} to {}",
+                            String::from_utf8_lossy(&response)
+                                .split('\n')
+                                .next()
+                                .unwrap_or("<Error getting message type>"),
+                            addr
+                        );
                         socket.send_to(&response, addr).await?;
                     }
                     Err(e) => eprintln!("[Payment Gateway] Error processing message: {}", e),
@@ -45,22 +58,21 @@ async fn handle_messages(mut logger: Logger) -> io::Result<()> {
 }
 
 /// Gateway's entry point.
-/// Creates an async logger and calls the main function over a tokio runtime.
+/// Creates an async logger and calls the main function over a Tokio runtime.
+///
+/// # Errors
+///
+/// Returns a `String` error message if there's an issue creating the Tokio runtime
+/// or initializing the logger.
 pub fn run() -> Result<(), String> {
     let runtime = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
 
     runtime.block_on(async {
-        match Logger::new().await {
-            Ok(logger) => {
-                if let Err(err) = handle_messages(logger).await {
-                    eprintln!("Error handling messages: {}", err);
-                }
-            }
-            Err(e) => {
-                eprintln!("Failed to initialize logger: {}", e);
-                return Err(e);
-            }
+        let logger = Logger::new().await?; 
+        if let Err(err) = handle_messages(logger).await {
+            eprintln!("Error handling messages: {}", err);
         }
+                        
         Ok(())
     })
 }

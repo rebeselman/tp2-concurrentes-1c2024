@@ -1,4 +1,0 @@
-abort {"order_id":1,"client_id":5,"credit_card_number":"4111111111111111","items":[]}
-commit {"order_id":1,"client_id":5,"credit_card_number":"4111111111111111","items":[]}
-prepare {"order_id":1,"client_id":5,"credit_card_number":"4111111111111111","items":[]}
-prepare {"order_id":1,"client_id":5,"credit_card_number":"4111111111111111","items":[]}

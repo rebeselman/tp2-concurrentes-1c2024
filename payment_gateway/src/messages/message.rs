@@ -15,19 +15,15 @@ pub trait Message {
     fn get_response_type(&self) -> String;
 
     /// Returns a vector of bytes representing the respond message.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error string if serialization of the order fails.
-    fn process(&self) -> Result<Vec<u8>, String> {
-        let message_type = self.get_response_type();
-        let mut message = message_type.as_bytes().to_vec();
-        message.push(b'\n');
-
-        let order_serialized = serde_json::to_vec(&self.get_order()).map_err(|e| e.to_string())?;
-        message.extend_from_slice(&order_serialized);
-        message.push(0u8);
-        Ok(message)
+    /// The format will be:
+    /// <order_id>\n<message_type>
+    fn process(&self) -> Vec<u8> {
+        format!(
+            "{}\n{}",
+            self.get_order().order_id,
+            self.get_response_type()
+        )
+        .into_bytes()
     }
 
     /// Generates a log entry for the message and returns it as a string.
@@ -44,6 +40,9 @@ pub trait Message {
 }
 
 /// Converts the message string to its correspondent object type.
+/// The string format should be:
+/// {message_type}\n{payload}\0
+/// with payload being the serialized Order.
 ///
 /// # Errors
 ///

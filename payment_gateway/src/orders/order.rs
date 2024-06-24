@@ -3,8 +3,8 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Deserialize, Serialize, Debug)]
 pub struct Order {
-    order_id: i32,
-    client_id: i32,
+    pub order_id: usize,
+    client_id: usize,
     credit_card: String,
     items: Vec<Item>,
 }

@@ -23,25 +23,22 @@ async fn handle_messages(mut logger: Logger) -> io::Result<()> {
         match message::deserialize_message(str_read) {
             Ok(message) => {
                 println!(
-                    "[Payment Gateway] Received message {} from {}",
+                    "[Payment Gateway] Received message '{}' from {}",
                     message.type_to_string(),
                     addr
                 );
 
-                match message.process() {
-                    Ok(response) => {
-                        println!(
-                            "[Payment Gateway] Sending message {} to {}",
-                            String::from_utf8_lossy(&response)
-                                .split('\n')
-                                .next()
-                                .unwrap_or("<Error getting message type>"),
-                            addr
-                        );
-                        socket.send_to(&response, addr).await?;
-                    }
-                    Err(e) => eprintln!("[Payment Gateway] Error processing message: {}", e),
-                }
+                let response = message.process();
+                println!(
+                    "[Payment Gateway] Sending message '{} {}' to {}",
+                    message.get_order().order_id,
+                    String::from_utf8_lossy(&response)
+                        .split('\n')
+                        .last()
+                        .unwrap_or("<Error getting message type>"),
+                    addr
+                );
+                socket.send_to(&response, addr).await?;
 
                 if let Err(e) = logger.log(&*message).await {
                     eprintln!("[Payment Gateway] Error logging message: {}", e);

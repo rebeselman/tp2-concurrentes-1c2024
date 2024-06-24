@@ -66,7 +66,7 @@ pub fn run() -> Result<(), String> {
     runtime.block_on(async {
         let logger = Logger::new().await?;
         if let Err(err) = handle_messages(logger).await {
-            eprintln!("Error handling messages: {}", err);
+            eprintln!("[Payment Gateway] Error handling messages: {}", err);
         }
 
         Ok(())

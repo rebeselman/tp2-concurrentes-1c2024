@@ -1,7 +1,7 @@
 use super::abort::Abort;
 use super::commit::Commit;
 use super::prepare::Prepare;
-use crate::order::order::Order;
+use crate::orders::order::Order;
 
 /// Trait representing a generic message.
 pub trait Message {
@@ -18,7 +18,7 @@ pub trait Message {
     ///
     /// # Errors
     ///
-    /// Returns an error string if serialization of the order fails. 
+    /// Returns an error string if serialization of the order fails.
     fn process(&self) -> Result<Vec<u8>, String> {
         let message_type = self.get_response_type();
         let mut message = message_type.as_bytes().to_vec();
@@ -36,7 +36,8 @@ pub trait Message {
     ///
     /// Returns an error string if serialization of the order fails.
     fn log_entry(&self) -> Result<String, String> {
-        let order_serialized = serde_json::to_string(&self.get_order()).map_err(|e| e.to_string())?;
+        let order_serialized =
+            serde_json::to_string(&self.get_order()).map_err(|e| e.to_string())?;
         let log_entry = format!("{} {}\n", self.type_to_string(), order_serialized);
         Ok(log_entry)
     }
@@ -48,7 +49,7 @@ pub trait Message {
 ///
 /// Returns an error if the message is incomplete, has an empty payload, or if JSON deserialization fails.
 pub fn deserialize_message(message: String) -> Result<Box<dyn Message>, String> {
-    let mut parts = message.splitn(2,'\n');
+    let mut parts = message.splitn(2, '\n');
     let message_type = parts
         .next()
         .ok_or_else(|| "Incomplete message: missing message type and payload".to_owned())?;

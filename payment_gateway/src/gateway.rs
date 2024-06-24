@@ -1,7 +1,7 @@
-use tokio::io;
-use tokio::net::UdpSocket;
 use crate::logger::Logger;
 use crate::messages::message;
+use tokio::io;
+use tokio::net::UdpSocket;
 
 const PAYMENT_GATEWAY_IP: &str = "127.0.0.1:1024";
 
@@ -49,7 +49,7 @@ async fn handle_messages(mut logger: Logger) -> io::Result<()> {
             }
             Err(e) => {
                 eprintln!(
-                    "[Payment Gateway] Error deserializing message from {}: {} ",
+                    "[Payment Gateway] Error deserializing message from {}: {}",
                     addr, e
                 );
             }
@@ -57,8 +57,7 @@ async fn handle_messages(mut logger: Logger) -> io::Result<()> {
     }
 }
 
-/// Gateway's entry point.
-/// Creates an async logger and calls the main function over a Tokio runtime.
+/// Creates an async logger and calls the main loop function over a Tokio runtime.
 ///
 /// # Errors
 ///
@@ -68,11 +67,11 @@ pub fn run() -> Result<(), String> {
     let runtime = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
 
     runtime.block_on(async {
-        let logger = Logger::new().await?; 
+        let logger = Logger::new().await?;
         if let Err(err) = handle_messages(logger).await {
             eprintln!("Error handling messages: {}", err);
         }
-                        
+
         Ok(())
     })
 }

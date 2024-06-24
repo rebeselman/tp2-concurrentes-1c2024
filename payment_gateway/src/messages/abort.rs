@@ -1,5 +1,5 @@
-use crate::order::order::Order;
 use super::message::Message;
+use crate::orders::order::Order;
 
 /// Represents an `Abort` message with its corresponding order.
 pub struct Abort {
@@ -23,7 +23,7 @@ impl Message for Abort {
     fn type_to_string(&self) -> String {
         "abort".to_string()
     }
-    
+
     /// Returns the response type as a string.
     fn get_response_type(&self) -> String {
         "abort".to_string()

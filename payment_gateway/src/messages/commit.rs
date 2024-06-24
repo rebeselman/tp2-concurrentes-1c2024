@@ -1,5 +1,5 @@
-use crate::order::order::Order;
 use super::message::Message;
+use crate::orders::order::Order;
 
 /// Represents a `Commit` message with its corresponding order.
 pub struct Commit {
@@ -23,7 +23,7 @@ impl Message for Commit {
     fn type_to_string(&self) -> String {
         "commit".to_string()
     }
-    
+
     /// Returns the response type as a string.
     fn get_response_type(&self) -> String {
         "finished".to_string()

@@ -77,7 +77,7 @@ Tienen como estado interno el contenedor que están empleando, en caso de que es
 Será una aplicación simple que _loguea_, tal como indica el enunciado, en un archivo. Se tendrá una sola instancia de la misma que se encargará de recibir mensajes _prepare_  del coordinador (que se encuentra en **Interfaces de Clientes**), preguntando si se puede capturar el pago (la tarjeta puede fallar con una probabilidad aleatoria). Su respuesta será _ready_ o _abort_ dependiendo el caso. Luego, si se logra entregar el pedido correctamente, se recibirá un mensaje _commit_ y se realizará el cobro efectivo.
 
 ## Comunicación entre procesos
-Para asegurar una comunicación confiable entre los procesos usando sockets UDP, cada mensaje enviado esperará una respuesta del receptor. En caso de no recibir respuesta en un tiempo determinado, se considerará que se perdió el paquete y se reenviará el mensaje. Se utilizará un protocolo de comunicación simple, donde cada mensaje tendrá un formato específico.
+Para asegurar una comunicación confiable entre los procesos usando sockets UDP, cada mensaje enviado esperará una respuesta del receptor. En caso de no recibir respuesta en un tiempo determinado, se considerará que se perdió el paquete y se reenviará el mensaje. Se utilizarán protocolos de comunicación simples, donde cada mensaje tendrá un formato específico.
 
 A continuación se presentan diagramas de secuencia que muestran el intercambio de mensajes entre las entidades en distintos escenarios:
 
@@ -147,20 +147,18 @@ El payload es un tipo del enum `Response` serializado en formato _JSON_ que pued
 
 - Cada **pedido** posee los siguientes atributos:
   - **id**: clave numérica única para cada uno.
-  - **cliente**: datos de quien lo realiza.
-  - **items**: lista de productos que lo conforman.
-- Cada **cliente** cuenta con los siguientes atributos:
-  - **id**: clave numérica única para cada uno.
+  - **id del cliente**: clave numérica única del cliente que lo realiza.
   - **tarjeta de crédito**: los 16 números de la misma en formato string.
-- Cada **producto** tiene los siguientes atributos:
-  - **tipo**: puede ser vasito, cucurucho, 1/4 kg, 1/2 kg o 1 kg. 
+  - **ítems**: lista de productos que lo conforman.  
+- Cada **ítem** tiene los siguientes atributos:
+  - **contenedor**: puede ser vasito, cucurucho, 1/4 kg, 1/2 kg o 1 kg. 
   - **cantidad**: número de unidades del mismo.
   - **sabores**: lista de sabores que pueden ser chocolate, frutilla, vainilla, menta y limón. El máximo de sabores para cualquier producto es 3.
 
 ## Supuestos
 - Se define la cantidad de instancias de interfaces de clientes en 3.
-- La cantidad de instancias de robots será 5.
+- La cantidad de instancias de robots es 5.
 - La aplicación del Gateway de Pagos nunca se cae.
-- En el caso de que un robot esté preparando un helado y no haya más stock del gusto a servir, se desecha todo lo servido previamente y el pedido queda cancelado.
+- En el caso de que un robot esté preparando un pedido y no haya más stock del gusto a servir, se desecha todo lo servido previamente y el pedido queda cancelado.
 - Los puertos de las pantallas y los robots son conocidos. 
-
+- El pago se captura aleatoriamente con una probabilidad de 0.9.

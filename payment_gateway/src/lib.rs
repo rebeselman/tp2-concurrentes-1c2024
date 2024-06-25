@@ -6,9 +6,4 @@ pub mod messages {
     pub mod message;
     pub mod prepare;
 }
-pub mod orders {
-    pub mod container_type;
-    pub mod ice_cream_flavor;
-    pub mod item;
-    pub mod order;
-}
+

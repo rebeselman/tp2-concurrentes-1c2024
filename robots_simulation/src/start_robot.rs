@@ -3,7 +3,6 @@ use std::net::UdpSocket;
 use std::sync::Arc;
 use std::io;
 use std::time::Duration;
-use serde_json::Error;
 use robots_simulation::robot::Robot;
 use robots_simulation::items::{AccessAllowed, AccessDenied, OrderReceived, RequestToCoordinator, Response};
 

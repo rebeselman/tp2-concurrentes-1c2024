@@ -1,7 +1,7 @@
 use super::abort::Abort;
 use super::commit::Commit;
 use super::prepare::Prepare;
-use crate::orders::order::Order;
+use orders::order::Order;
 
 /// Trait representing a generic message.
 pub trait Message {

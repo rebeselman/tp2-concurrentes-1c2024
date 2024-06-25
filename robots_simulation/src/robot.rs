@@ -1,13 +1,13 @@
 use std::collections::HashSet;
-use std::hash::Hash;
 use std::io;
 use std::net::UdpSocket;
 use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
-
+use orders::ice_cream_flavor::IceCreamFlavor;
+use orders::order::Order;
 use actix::prelude::*;
-use super::items::{AccessAllowed, AccessDenied, IceCreamFlavor, Order, OrderReceived, RequestToCoordinator, RobotState};
+use super::items::{AccessAllowed, AccessDenied, OrderReceived, RequestToCoordinator, RobotState};
 
 pub struct Robot {
     robot_id: usize,
@@ -35,7 +35,7 @@ impl Robot {
     }
 
     fn process_order(&mut self, order: &Order) -> io::Result<()> {
-        let flavors: HashSet<IceCreamFlavor> = order.items.iter().flat_map(|item| item.flavors.clone()).collect();
+        let flavors: HashSet<IceCreamFlavor> = order.items().iter().flat_map(|item| item.flavors().clone()).collect();
         let flavors_needed: Vec<IceCreamFlavor> = flavors.into_iter().collect();
         println!("[Robot {}] Processing order: {:?}", self.robot_id, order);
         self.request_access(order, &flavors_needed)?;

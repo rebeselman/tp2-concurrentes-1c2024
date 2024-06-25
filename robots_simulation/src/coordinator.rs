@@ -4,8 +4,10 @@ use std::sync::Arc;
 use actix::{Actor, Addr, Context, Handler};
 use tokio::net::UdpSocket;
 use tokio::sync::Mutex;
-use robots_simulation::items::{AccessRequest, IceCreamFlavor, Order, OrderState, OrderRequest, ReleaseRequest, RequestToCoordinator, Response, OrderFinished, CommitReceived, OrderStatus};
+use robots_simulation::items::{AccessRequest, OrderState, OrderRequest, ReleaseRequest, RequestToCoordinator, Response, OrderFinished, CommitReceived, OrderStatus};
 use robots_simulation::items::OrderStatus::{Completed, CompletedButNotCommited, Pending};
+use orders::ice_cream_flavor::IceCreamFlavor;
+use orders::order::Order;
 
 #[derive(Clone)]
 struct Coordinator {
@@ -124,13 +126,13 @@ impl Handler<OrderRequest> for Coordinator {
         let order = order.clone();
         let addr = screen_addr.clone();
         let this = self.clone();
-        self.orders.insert(order.order_id, OrderState {
+        self.orders.insert(order.id(), OrderState {
             order: order.clone(),
             status: Pending,
             screen_addr,
         });
         actix_rt::spawn(async move {
-            let message = format!("{}\nready", order.order_id).into_bytes();
+            let message = format!("{}\nready", order.id()).into_bytes();
             this.socket.send_to(&message, &addr).await.unwrap();
             this.assign_order_to_robot(order).await;
         });
@@ -144,7 +146,7 @@ impl Handler<CommitReceived> for Coordinator {
         let CommitReceived { robot_id, order } = msg;
         let mut send_finished = false;
         let mut addr: SocketAddr = SocketAddr::new([0, 0, 0, 0].into(), 0);
-        if let Some(order_state) = self.orders.get_mut(&order.order_id) {
+        if let Some(order_state) = self.orders.get_mut(&order.id()) {
             if order_state.status == Pending {
                 order_state.status = OrderStatus::CommitReceived;
             }
@@ -156,7 +158,7 @@ impl Handler<CommitReceived> for Coordinator {
         }
         // If address is not null
         if send_finished && addr != SocketAddr::new([0, 0, 0, 0].into(), 0) {
-            self.send_finish_message(order.order_id, &addr);
+            self.send_finish_message(order.id(), &addr);
         }
     }
 }
@@ -198,7 +200,7 @@ impl Handler<OrderFinished> for Coordinator {
 
     fn handle(&mut self, msg: OrderFinished, _ctx: &mut Self::Context) {
         let OrderFinished { robot_id, order } = msg;
-        let order_id = order.order_id;
+        let order_id = order.id();
         let mut this = self.clone();
         actix_rt::spawn(async move {
             this.order_completed(order_id);
@@ -260,7 +262,7 @@ async fn main() {
         match message_type {
             "prepare" => {
                 let order: Order = serde_json::from_str(&parts.next().unwrap()).unwrap();
-                println!("[COORDINATOR] Received prepare message for order: {}", order.order_id);
+                println!("[COORDINATOR] Received prepare message for order: {}", order.id());
                 let order_request = OrderRequest {
                     order,
                     screen_addr: addr,
@@ -269,7 +271,7 @@ async fn main() {
             }
             "commit" => {
                 let order: Order = serde_json::from_str(&parts.next().unwrap()).unwrap();
-                println!("[COORDINATOR] Received commit message for order: {}", order.order_id);
+                println!("[COORDINATOR] Received commit message for order: {}", order.id());
                 let commit_received = CommitReceived {
                     robot_id: 0,
                     order,

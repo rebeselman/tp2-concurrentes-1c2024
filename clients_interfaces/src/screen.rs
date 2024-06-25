@@ -1,6 +1,6 @@
 //! Represents a screen of an ice cream local
 
-use std::{collections::HashMap, error::Error, fs::File, io::{BufRead, BufReader}, mem::size_of, net::UdpSocket, sync::{Arc, Condvar, Mutex}, thread, time::{Duration, Instant}};
+use std::{collections::HashMap, error::Error, fs::File, io::{BufRead, BufReader}, net::UdpSocket, sync::{Arc, Condvar, Mutex}, thread, time::{Duration, Instant}};
 use std::sync::MutexGuard;
 use orders::order::Order;
 use crate::order_state::OrderState;

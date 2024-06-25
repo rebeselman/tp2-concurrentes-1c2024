@@ -1,11 +1,11 @@
 //! Supported flavors for ice cream
 
 use serde::{Deserialize, Serialize};
-#[derive(Debug, Clone, Copy,Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy,Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub enum IceCreamFlavor {
     Chocolate,
     Strawberry,
-    Vanella,
+    Vanilla,
     Mint,
     Lemon
 }
@@ -14,6 +14,6 @@ pub enum IceCreamFlavor {
 impl IceCreamFlavor {
     /// Returns all the possible values of IceCreamFlavor
     pub fn values()-> Vec<IceCreamFlavor> {
-        return vec![IceCreamFlavor::Chocolate, IceCreamFlavor::Strawberry, IceCreamFlavor::Vanella, IceCreamFlavor::Mint, IceCreamFlavor::Lemon]
+        return vec![IceCreamFlavor::Chocolate, IceCreamFlavor::Strawberry, IceCreamFlavor::Vanilla, IceCreamFlavor::Mint, IceCreamFlavor::Lemon]
     }
 }

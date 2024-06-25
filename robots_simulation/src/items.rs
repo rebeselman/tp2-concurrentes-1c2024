@@ -1,41 +1,10 @@
 use actix::Message;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::net::SocketAddr;
+use orders::order::Order;
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct Item {
-    pub container: ContainerType,
-    pub units: u32,
-    pub flavors: Vec<IceCreamFlavor>
-}
+use orders::ice_cream_flavor::IceCreamFlavor;
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct Order {
-    pub order_id: usize,
-    client_id: usize,
-    credit_card: String,
-    pub items: Vec<Item>
-
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone, Hash, Eq, PartialEq)]
-pub enum IceCreamFlavor {
-    Chocolate,
-    Strawberry,
-    Vanilla,
-    Mint,
-    Lemon,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub enum ContainerType {
-    Cup,
-    Cone,
-    OneKilo,
-    HalfKilo,
-    QuarterKilo,
-}
 
 #[derive(Serialize, Deserialize, Debug)]
 pub enum RequestToCoordinator {

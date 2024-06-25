@@ -41,27 +41,36 @@ Se modela cada interfaz de cliente o pantalla, la cual lee de un archivo pedidos
 
 #### Resiliencia en las pantallas
 
-- Para verificar el estado de cada pantalla, el coordinador enviará un mensaje _ping_ a cada una de ellas. Si no se recibe respuesta en un tiempo determinado, se considerará que la pantalla está caída.
-- Cuando se detecta que una pantalla está caída, los pedidos que estaba manejando se reasignan a otras pantallas. Para poder hacer esto, se tiene una cola de pedidos centralizada donde los pedidos pendientes puedan ser reenviados a otras pantallas en caso de fallo.
+- Para verificar el estado de cada pantalla, se envían mensajes tipo _ping_ entre sí cada cierto tiempo para verificar que siguen procesando pedidos. En el mensaje _ping_ se envía información del último pedido completado. De esta forma, una pantalla puede tomar los pedidos de esa pantalla caída desde esa orden. Se utilizaría el modelo de actores para la comunicación entre las pantallas.
+- Cuando se detecta que una pantalla está caída, los pedidos que estaba manejando se reasignan a otra pantalla. Ya se tendría establecido qué pantalla se hace cargo de qué pantalla en caso de que se caiga alguna. Por ejemplo: tenemos las pantallas 0, 1, 2, 3. Si se cae la 0, se hace cargo la 1, si se cae la 1, se hace cargo la 2, si se cae la 3, se hace cargo la 0.
 
 ### Gestión de Pedidos
  Esta aplicación se comunica con **Interfaces de Clientes**, recibiendo órdenes de pedidos y respondiendo si el robot pudo preparar el pedido para su entrega. Se plantea utilizar las siguientes herramientas de concurrencia:
 - **Modelo de actores** para los robots:
 Tienen como estado interno el contenedor que están empleando, en caso de que estén usando alguno. Los tipos de mensajes serán para solicitar un contenedor, liberarlo, y para otorgar o denegar su acceso. 
-- **Algoritmo Centralizado** para sincronizar los accesos a los contenedores de helado por parte de los robots: Se elige a un robot como coordinador. Si alguno quiere utilizar alguno de los contenedores de helado, le envía un mensaje de solicitud al coordinador. El mensaje indica qué contenedor se quiere utilizar. Si ningún otro robot lo está usando, el coordinador le responde _OK_ y lo deja entrar. En cambio, si ya hay algún robot utilizando ese contenedor, el coordinador le envía _ACK_ y se bloquea el solicitante, agregando su solicitud a una cola. Cuando el robot que estaba usando el contenedor termina, le avisa al coordinador. Este saca al solicitante de la cola para otorgarle el acceso, enviándole _OK_.
-	
+- **Algoritmo Centralizado** para sincronizar los accesos a los contenedores de helado por parte de los robots con optimización:
+  - Se elige a un robot como coordinador.
+  - Cada robot le envía al coordinador un vector con los contenedores (sabores) a los que necesita acceder.
+  - El coordinador recorre el vector y le da acceso al primer contenedor que esté disponible.
+  - Si hay algún contenedor disponible, le envía un enum Response::AccesoConcedido(IceCreamFlavor).
+  - Si ningún contenedor está disponible, le manda un enum Response::AccesoDenegado(<razón>) con la razón por la cuál no pudo acceder. Además, agrega la request del robot a una cola.
+  - Cuando se libera algún contenedor, el coordinador saca la/s request/s de la cola y se fija si el contenedor que se liberó le sirve a algún robot.
+  
   Se decidió utilizar este algoritmo, porque, tal como se indica en el libro _Distributed Operating Systems_ de Tanenbaum, es el más simple de los algoritmos. Citando el libro, "El algoritmo centralizado es el más sencillo y también el más eficiente. Sólo requiere de tres mensajes para entrar y salir de una región critica: una solicitud y otorgamiento para entrar y una liberación para salir". El único problema que puede ocurrir es que falle el coordinador, pero existen algoritmos para detectar esto y elegir otro.
 - **Algoritmo Bully** para elegir robot coordinador al inicio y en caso de que falle (cuando un robot observa que el coordinador ya no responde las solicitudes por un timeout definido), inicia una elección:
   1. El robot envía _ELECTION_ a los demás procesos con un id mayor.
   2. Si nadie responde, este gana la elección y se convierte en el coordinador. Se anuncia enviando un mensaje _COORDINATOR_ a todo el resto.
   3. Si alguno de los robots con id mayor le responde _OK_, este repite el mismo proceso y el trabajo del robot que llamó a elecciones termina.
 
+  En el caso en que un robot estaba esperando para entrar en la sección crítica cuando cambia el coordinador, cuando termina la elección del nuevo coordinador, el robot que estaba esperando vuelve a solicitar el acceso al nuevo coordinador.
+  
   Por lo visto en la bibliografía, no hay mucha diferencia entre los algoritmos de elección, no hay ventajas significativas entre elegir uno u otro.
 
 #### Resiliencia en los robots
 
 - Para verificar el estado de cada robot, el coordinador enviará un mensaje _ping_ a cada uno de ellos. Si no se recibe respuesta en un tiempo determinado, se considerará que el robot está caído.
-- Cuando se detecta que un robot está caído y estaba procesando un pedido, el coordinador reasigna el pedido a otro robot. Para poder hacer esto, se tiene una cola de pedidos centralizada donde los pedidos pendientes puedan ser reenviados a otros robots en caso de fallo.
+- Cuando se detecta que un robot está caído y estaba procesando un pedido, el coordinador reasigna el pedido a otro robot. Para poder hacer esto, el coordinador mantiene un diccionario con lo que está haciendo cada robot. 
+- Cuando se cambia el coordinador, cada robot le manda al coordinador el pedido que estaba haciendo, junto con la pantalla que lo pidió. Luego, el coordinador nuevo le envía a cada pantalla de nuevo _ready_ para el pedido que pidió y se está haciendo.
 
 ### Gateway de Pagos
 Será una aplicación simple que _loguea_, tal como indica el enunciado, en un archivo. Se tendrá una sola instancia de la misma que se encargará de recibir mensajes _prepare_  del coordinador (que se encuentra en **Interfaces de Clientes**), preguntando si se puede capturar el pago (la tarjeta puede fallar con una probabilidad aleatoria). Su respuesta será _ready_ o _abort_ dependiendo el caso. Luego, si se logra entregar el pedido correctamente, se recibirá un mensaje _commit_ y se realizará el cobro efectivo.
@@ -126,6 +135,27 @@ cargo run --bin coordinador
 
 Se ejecutan las pantallas con
 cargo run --bin clients_interfaces
+
+#### Mensajes entre Robots y Coordinador
+Para pedir y liberar el acceso a los contenedores de helado e indicarle al coordinador que se completó la orden, se utilizará el siguiente formate de mensaje: 
+			
+   					{access}\n{payload}\0
+
+El payload es un tipo de enum `RequestToCoordinator` serializado en formato JSON.
+El payload puede ser: 
+- SolicitarAcceso: incluye el id del robot y el vector de sabores a los que se pide acceso.
+- LiberarAcceso: incluye el id del robot y el sabor de helado al que tenía acceso.
+- OrdenTerminada: incluye el id del robot y la _Order_ completada.
+
+El coordinar para contestarle a los robots y asignar pedidos, utiliza el siguiente formato de mensaje: 
+
+   					{access}\n{payload}\0
+
+El payload es un tipo de enum `Response` serializado en formato JSON.
+El payload puede ser: 
+- AccesoConcedido: incluye el sabor de helado al que le dió acceso.
+- AccesoDenegado: incluye la razón por la cual no le pudo dar acceso.
+- AssignOrder: incluye el id del robot y la _Order_ asignada.
 
 ## Modelo de dominio
 

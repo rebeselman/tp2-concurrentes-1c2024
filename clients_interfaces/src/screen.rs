@@ -2,7 +2,8 @@
 
 use std::{collections::HashMap, error::Error, fs::File, io::{BufRead, BufReader}, mem::size_of, net::UdpSocket, sync::{Arc, Condvar, Mutex}, thread, time::{Duration, Instant}};
 use std::sync::MutexGuard;
-use crate::{order::Order, order_state::OrderState};
+use orders::order::Order;
+use crate::order_state::OrderState;
 const TIMEOUT: Duration = Duration::from_secs(60);
 const PAYMENT_GATEWAY_IP: &str = "127.0.0.1:8081";
 const ORDER_MANAGEMENT_IP: &str = "127.0.0.1:8080";
@@ -174,6 +175,7 @@ impl Screen {
                     } else {
                         responses[ORDER_MANAGEMENT] = Some(OrderState::Ready);
                         println!("[SCREEN {}] received READY from order management for order {}", self.id, order_id);
+                        //a double ready from order management means that the coordinator has changed
                     }
 
                     self.responses.1.notify_all();

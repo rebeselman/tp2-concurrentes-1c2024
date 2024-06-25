@@ -1,25 +1,41 @@
 
-const _NUMBER_SCREENS: u8 = 3;
-const _PAYMENT_GATEWAY_IP: &str = "127.0.0.1:8080";
-const _ORDER_MANAGEMENT_IP: &str = "127.0.0.1:8081";
-const _SCREEN_IP: &str = "127.0.0.1:8080";
+use std::process::{exit, Command};
 
-
-
-
-
-
-
-
-
-
+use clients_interfaces::generate_orders;
+const NUMBER_SCREENS: u8 = 3;
 
 
 fn main() {
+    // create files of simulated orders
+    generate_orders::generate_orders(NUMBER_SCREENS as u32).unwrap_or_else(|e| {
+        eprintln!("Error: {}", e);
+        exit(1)
+    });
+ 
+    // create a screen process for each screen
+    for id in 0..NUMBER_SCREENS {
+        let mut child = Command::new("cargo")
+            .arg("run")
+            .arg("--bin")
+            .arg("screen_process")
+            .arg(id.to_string())
+            .spawn().unwrap_or_else(|e| {
+                eprintln!("Error: {}", e);
+                exit(1)
+            });
 
-  
+        // wait for the screen process to finish
+        let _ = child.wait().unwrap_or_else(|e| {
+            eprintln!("Error: {}", e);
+            exit(1)
+        });
+        
+        
+       
+        
+    } 
+
    
    
 }
-
 

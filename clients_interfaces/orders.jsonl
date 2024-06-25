@@ -1,2 +1,0 @@
-{"order_id": 1, {"client_id": 1234, "credit_card": "0000111122223333"}, "items": [{"type": "cone", "quantity": 2, "flavors": ["chocolate", "vanilla"]}, {"type": "cup", "quantity": 1, "flavors": ["strawberry", "chocolate"]}]}
-{"order_id": 2, {"client_id": 5678, "credit_card": "4444555566667777"}, "items": [{"type": "1 kg", "quantity": 1, "flavors": ["mint", "vanilla", "lemon"]}]}

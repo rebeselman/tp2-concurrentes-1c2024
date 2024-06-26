@@ -161,11 +161,11 @@ impl Screen {
             let mut buf = [0; 1024];
             let (size, from) = self.socket.recv_from(&mut buf)?;
             let message = String::from_utf8_lossy(&buf[..size]);
-            println!("Received message: {}", message);
+            //println!("Received message: {}", message);
             let mut parts = message.split('\n');
             let order_id = parts.next().ok_or("No order id")?.parse::<usize>()?;
             let response = parts.next().ok_or("No response")?;
-            println!("Received message for order {} with response {}", order_id, response);
+            //println!("Received message for order {} with response {}", order_id, response);
             let mut responses = self.responses.0.lock().map_err(|e| e.to_string())?;
             match response {
                 "ready" => {

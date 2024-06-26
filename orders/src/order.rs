@@ -51,5 +51,9 @@ impl Order {
         return &self.items
     }
 
+
+    pub fn time_to_prepare(&self)-> u32 {
+        return self.items.iter().map(|item| item.time_to_prepare()).sum()
+    }
     
 }

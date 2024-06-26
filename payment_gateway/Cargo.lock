@@ -153,6 +153,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "orders"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "parking_lot"
 version = "0.12.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -179,6 +187,7 @@ dependencies = [
 name = "payment_gateway"
 version = "0.1.0"
 dependencies = [
+ "orders",
  "rand",
  "serde",
  "serde_json",

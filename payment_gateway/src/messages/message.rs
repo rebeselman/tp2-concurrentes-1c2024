@@ -20,7 +20,7 @@ pub trait Message {
     fn process(&self) -> Vec<u8> {
         format!(
             "{}\n{}",
-            self.get_order().order_id,
+            self.get_order().id(),
             self.get_response_type()
         )
         .into_bytes()

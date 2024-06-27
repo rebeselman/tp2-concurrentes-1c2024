@@ -167,6 +167,20 @@ impl Robot {
         }
         Ok(())
     }
+
+
+    fn abort_order(&mut self, _robot_id: usize, order: Order) -> io::Result<()>{
+        match self.state {
+            RobotState::WaitingForAccess(ref waiting_order, _) => {
+                self.state = RobotState::Idle;
+            }
+            RobotState::ProcessingOrder(ref processing_order) => {
+                self.state = RobotState::Idle;
+            }
+            _ => {}
+        }
+        Ok(())
+    }
 }
 
 /// Implement the Actor trait for Robot
@@ -188,6 +202,9 @@ impl Handler<CoordinatorMessage>  for Robot {
             CoordinatorMessage::OrderReceived { robot_id, order } => {
                 self.process_received_order(robot_id, order).unwrap_or_else(|e|eprintln!("[Robot {}] Error processing received order: {}", self.robot_id, e))
                 
+            }
+            CoordinatorMessage::OrderAborted { robot_id, order } => {
+                self.abort_order(robot_id, order).unwrap_or_else(|e|eprintln!("[Robot {}] Error processing aborted order: {}", self.robot_id, e))
             }
             CoordinatorMessage::ACK => {
                 println!("[Robot {}] ACK received", self.robot_id);

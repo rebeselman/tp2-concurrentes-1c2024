@@ -4,4 +4,5 @@ pub enum OrderStatus {
     CompletedButNotCommited,
     CommitReceived,
     Completed,
+    Aborted,
 }

@@ -18,5 +18,9 @@ pub enum CoordinatorMessage {
         robot_id: usize,
         order: Order
     },
+    OrderAborted {
+        robot_id: usize,
+        order: Order
+    },
     ACK,
 }

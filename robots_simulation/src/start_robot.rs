@@ -34,6 +34,9 @@ fn main() -> io::Result<()> {
                     Ok(AccessDenied { reason }) => {
                         robot.send(AccessDenied { reason }).await.unwrap();
                     }
+                    Ok(CoordinatorMessage::OrderAborted { robot_id, order }) => {
+                        robot.send(CoordinatorMessage::OrderAborted { robot_id, order }).await.unwrap();
+                    }
                     Ok(ACK) => {
                         println!("ACK received");
                     }

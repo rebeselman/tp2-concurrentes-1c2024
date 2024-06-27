@@ -13,7 +13,7 @@ use robots_simulation::screen_message::ScreenMessage;
 use tokio::net::UdpSocket;
 use tokio::sync::Mutex;
 use orders::ice_cream_flavor::IceCreamFlavor;
-use orders::order::Order;
+use orders::order::{self, Order};
 use robots_simulation::coordinator_messages::CoordinatorMessage::{self, AccessAllowed, AccessDenied, OrderReceived};
 
 use robots_simulation::order_status::OrderStatus::{Completed, CompletedButNotCommited, Pending};
@@ -143,6 +143,17 @@ impl Coordinator {
             socket.send_to(&message, &addr).await.unwrap();
         });
     }
+
+
+    /// Send abort message to the screen
+    fn send_abort_message(&self, order_id: usize, addr: &SocketAddr) {
+        let socket = self.socket.clone();
+        let addr = addr.clone();
+        actix_rt::spawn(async move {
+            let message = format!("{}\nabort", order_id).into_bytes();
+            socket.send_to(&message, &addr).await.unwrap();
+        });
+    }
 }
 
 
@@ -171,6 +182,7 @@ impl Handler<ScreenMessage> for Coordinator {
                     order: order.clone(),
                     status: Pending,
                     screen_addr,
+                    
                 });
                 actix_rt::spawn(async move {
                     let message = format!("{}\nready", order.id()).into_bytes();
@@ -178,7 +190,7 @@ impl Handler<ScreenMessage> for Coordinator {
                     this.assign_order_to_robot(order).await;
                 });
             }
-            ScreenMessage::CommitReceived { robot_id:_, order } => {
+            ScreenMessage::CommitReceived { order } => {
                 let mut send_finished = false;
                 let mut addr: SocketAddr = SocketAddr::new([0, 0, 0, 0].into(), 0);
                 if let Some(order_state) = self.orders.get_mut(&order.id()) {
@@ -196,8 +208,26 @@ impl Handler<ScreenMessage> for Coordinator {
                 self.send_finish_message(order.id(), &addr);
             }
             }
-            ScreenMessage::Abort { robot_id, order } => {
-                println!("Order aborted: {} {}",  robot_id, order.id());
+            ScreenMessage::Abort { order } => {
+                println!("Order aborted: {}", order.id());
+
+                
+                // remove the order from the orders
+                if let Some(order_state) =  self.orders.remove(&order.id()){
+                    // stop the robot?
+                    
+                    
+                    
+
+                    // send abort message to screen
+                    
+                    let addr: SocketAddr = SocketAddr::new(order_state.screen_addr.ip(), order_state.screen_addr.port());
+                    self.send_abort_message(order.id(), &addr);
+                }
+            
+                
+
+
             }
         }
     }
@@ -282,8 +312,7 @@ async fn main() {
                 let order: Order = serde_json::from_str(&parts.next().unwrap()).unwrap();
                 println!("[COORDINATOR] Received commit message for order: {}", order.id());
                 let commit_received = ScreenMessage::CommitReceived {
-                    robot_id: 0,
-                    order,
+                    order
                 };
                 coordinator.send(commit_received).await.unwrap();
             }
@@ -291,13 +320,13 @@ async fn main() {
                 let order: Order = serde_json::from_str(&parts.next().unwrap()).unwrap();
                 println!("[COORDINATOR] Received abort message for order: {}", order.id());
                 let abort = ScreenMessage::Abort {
-                    robot_id: 0,
                     order,
                 };
                 coordinator.send(abort).await.unwrap();
             }
             "access" => {
                 let msg: RobotResponse = serde_json::from_str(&parts.next().unwrap()).unwrap();
+
                 coordinator.send(msg).await.unwrap();
                 //process_access_message(&coordinator, msg, addr).await;
             },

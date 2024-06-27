@@ -8,8 +8,8 @@ const TIMEOUT: Duration = Duration::from_secs(60);
 const PAYMENT_GATEWAY_IP: &str = "127.0.0.1:8081";
 const ORDER_MANAGEMENT_IP: &str = "127.0.0.1:8080";
 const STAKEHOLDERS: usize = 2;
-const PAYMENT_GATEWAY: usize = 0;
-const ORDER_MANAGEMENT: usize = 1;
+const PAYMENT_GATEWAY: usize = 1;
+const ORDER_MANAGEMENT: usize = 0;
 
 pub struct Screen {
     id: usize,
@@ -96,7 +96,7 @@ impl Screen {
         println!("[SCREEN {}]Preparing order: {:?}", self.id, order.id());
         let mut message: Vec<u8> = b"prepare\n".to_vec();
         message.extend_from_slice(&order_serialized);
-        self.broadcast_and_wait(&message, OrderState::Ready)
+        self.broadcast_and_wait(&message, OrderState::Ready, order.clone())
     }
 
     /// This represents the second phase of the two-phase commit protocol. The screen sends a
@@ -104,11 +104,11 @@ impl Screen {
     /// At this point, they can't abort the order.
     fn commit(&mut self, order: &Order) -> Result<bool, Box<dyn Error>> {
         println!("[SCREEN {}] commiting order: {:?}", self.id, order.id());
-        self.log.insert(order.id(), OrderState::Commit);
+        self.log.insert(order.id(), OrderState::Finished);
         let order_serialized = serde_json::to_vec(order)?;
         let mut message: Vec<u8> = b"commit\n".to_vec();
         message.extend_from_slice(&order_serialized);
-        self.broadcast_and_wait(&message, OrderState::Commit)
+        self.broadcast_and_wait(&message, OrderState::Finished, order.clone())
     }
 
     /// This method is called when the screen receives an "abort" message from the payment gateway or the order management in
@@ -122,13 +122,20 @@ impl Screen {
         let order_serialized = serde_json::to_vec(order)?;
         let mut message: Vec<u8> = b"abort\n".to_vec();
         message.extend_from_slice(&order_serialized);
-        self.broadcast_and_wait(&message, OrderState::Abort)
+        self.broadcast_and_wait(&message, OrderState::Abort, order.clone())
     }
+
+
 
 
     /// This method sends a message to the payment gateway and the order management and waits for a response.
     /// The screen waits for an expected response from the payment gateway and the order management.
-    fn broadcast_and_wait(&self, message: &[u8], expected: OrderState) -> Result<bool, Box<dyn Error>> {
+    /// What happens if the screen receives ready from order management (to support the change of coordinator):
+    ///        If the screen was expecting ready (it doesn't matter if it is received twice), then everything is fine, it continues waiting for ready from the payment gateway
+    ///        If the screen was expecting abort, and it receives ready from order management, it should send abort to order management to clarify that the transaction should not continue as the card failed in this case
+    ///        If the screen was expecting finished, and it receives ready from order management, it should send commit to order management to clarify that the transaction should continue since the card was already accepted in this case (when ready was received before)
+
+    fn broadcast_and_wait(&mut self, message: &[u8], mut expected: OrderState, order: Order) -> Result<bool, Box<dyn Error>> {
         {
             let mut responses = self.responses.0.lock().map_err(|e| e.to_string())?;
             *responses = vec![None; STAKEHOLDERS];
@@ -147,11 +154,28 @@ impl Screen {
                 println!("[SCREEN {}] Timeout waiting for responses", self.id);
                 return Ok(false);
             }
-            if responses.iter().all(|&state| state == Some(expected)) {
-                return Ok(true);
+            
+            if responses[PAYMENT_GATEWAY] ==  Some(expected){
+                if responses[ORDER_MANAGEMENT] == Some(expected) {
+                    return Ok(true);
+                
+                }
+                else if (expected == OrderState::Abort || expected == OrderState::Finished ) && responses[ORDER_MANAGEMENT] == Some(OrderState::Ready){
+                    self.socket.send_to(message, ORDER_MANAGEMENT_IP)?;
+                    continue;
+                }
+                
             }
-        }
+            else {
+                return Ok(false);
+            }
+            
+
+            
+            
+        }   
     }
+    
     /// This method receives messages that could be from either the payment gateway or the order management.
     /// And modifies the order state in the log accordingly.
     /// Should receive a message in this format
@@ -193,10 +217,10 @@ impl Screen {
                 }
                 "finished" => {
                     if from.to_string() == PAYMENT_GATEWAY_IP {
-                        responses[PAYMENT_GATEWAY] = Some(OrderState::Commit);
+                        responses[PAYMENT_GATEWAY] = Some(OrderState::Finished);
                         println!("[SCREEN {}] received FINISHED from payment gateway for order {}", self.id, order_id);
                     } else {
-                        responses[ORDER_MANAGEMENT] = Some(OrderState::Commit);
+                        responses[ORDER_MANAGEMENT] = Some(OrderState::Finished);
                         println!("[SCREEN {}] received FINISHED from order management for order {}", self.id, order_id);
                     }
                     self.responses.1.notify_all();

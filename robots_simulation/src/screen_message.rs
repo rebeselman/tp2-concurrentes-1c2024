@@ -14,11 +14,9 @@ pub enum ScreenMessage {
         screen_addr: SocketAddr,
     },
     CommitReceived {
-        robot_id: usize,
         order: Order,
     },
-    Abort {
-        robot_id: usize,
+    Abort{
         order: Order,
     },
 

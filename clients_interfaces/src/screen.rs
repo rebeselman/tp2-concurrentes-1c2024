@@ -96,7 +96,7 @@ impl Screen {
         println!("[SCREEN {}]Preparing order: {:?}", self.id, order.id());
         let mut message: Vec<u8> = b"prepare\n".to_vec();
         message.extend_from_slice(&order_serialized);
-        self.broadcast_and_wait(&message, OrderState::Ready, order.clone())
+        self.broadcast_and_wait(&message, OrderState::Ready)
     }
 
     /// This represents the second phase of the two-phase commit protocol. The screen sends a
@@ -108,7 +108,7 @@ impl Screen {
         let order_serialized = serde_json::to_vec(order)?;
         let mut message: Vec<u8> = b"commit\n".to_vec();
         message.extend_from_slice(&order_serialized);
-        self.broadcast_and_wait(&message, OrderState::Finished, order.clone())
+        self.broadcast_and_wait(&message, OrderState::Finished)
     }
 
     /// This method is called when the screen receives an "abort" message from the payment gateway or the order management in
@@ -122,7 +122,7 @@ impl Screen {
         let order_serialized = serde_json::to_vec(order)?;
         let mut message: Vec<u8> = b"abort\n".to_vec();
         message.extend_from_slice(&order_serialized);
-        self.broadcast_and_wait(&message, OrderState::Abort, order.clone())
+        self.broadcast_and_wait(&message, OrderState::Abort)
     }
 
 
@@ -135,7 +135,7 @@ impl Screen {
     ///        If the screen was expecting abort, and it receives ready from order management, it should send abort to order management to clarify that the transaction should not continue as the card failed in this case
     ///        If the screen was expecting finished, and it receives ready from order management, it should send commit to order management to clarify that the transaction should continue since the card was already accepted in this case (when ready was received before)
 
-    fn broadcast_and_wait(&mut self, message: &[u8], mut expected: OrderState, order: Order) -> Result<bool, Box<dyn Error>> {
+    fn broadcast_and_wait(&mut self, message: &[u8], expected: OrderState) -> Result<bool, Box<dyn Error>> {
         {
             let mut responses = self.responses.0.lock().map_err(|e| e.to_string())?;
             *responses = vec![None; STAKEHOLDERS];

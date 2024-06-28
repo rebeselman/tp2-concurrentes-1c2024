@@ -2,7 +2,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::item::Item;
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct Order {
     order_id: usize,
     client_id: usize,

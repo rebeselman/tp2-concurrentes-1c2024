@@ -70,11 +70,18 @@ impl Coordinator {
 
     /// Assigns an order to a robot
 
-    async fn assign_order_to_robot(&self, order: Order) {
+    async fn assign_order_to_robot(&mut self, order: Order) {
         let mut robot_states = self.robot_states.lock().await;
         if let Some((&robot_id, &_available)) = robot_states.iter().find(|&(_, &available)| available == false) {
             robot_states.insert(robot_id, true); // Mark robot as busy
             //let msg = serde_json::to_vec(&Response::AssignOrder { robot_id, order }).unwrap();
+
+            // add robot id to order state
+            if let Some(order_state) = self.orders.get_mut(&order.id()) {
+                order_state.robot_id = Some(robot_id);
+            }
+
+
 
             let msg = serde_json::to_vec(&OrderReceived { robot_id, order}).unwrap();
             self.socket.send_to(&msg, format!("0.0.0.0:809{}", robot_id)).await.unwrap();
@@ -177,11 +184,12 @@ impl Handler<ScreenMessage> for Coordinator {
             ScreenMessage::OrderRequest { order, screen_addr } => {
                 let order = order.clone();
                 let addr = screen_addr.clone();
-                let this = self.clone();
+                let mut this = self.clone();
                 self.orders.insert(order.id(), OrderState {
                     order: order.clone(),
                     status: Pending,
                     screen_addr,
+                    robot_id: None,
                     
                 });
                 actix_rt::spawn(async move {
@@ -210,24 +218,30 @@ impl Handler<ScreenMessage> for Coordinator {
             }
             ScreenMessage::Abort { order } => {
                 println!("Order aborted: {}", order.id());
-
-                
                 // remove the order from the orders
                 if let Some(order_state) =  self.orders.remove(&order.id()){
                     // stop the robot?
-                    
-                    
-                    
-
-                    // send abort message to screen
-                    
-                    let addr: SocketAddr = SocketAddr::new(order_state.screen_addr.ip(), order_state.screen_addr.port());
-                    self.send_abort_message(order.id(), &addr);
+                    let this = self.clone();
+                    actix_rt::spawn(async move {
+                        // if some robot was assigned to the order
+                        if let Some(robot_id) =  order_state.robot_id {
+                            // send abort message to the robot 
+                            let msg = serde_json::to_vec(&CoordinatorMessage::OrderAborted { robot_id, order }).unwrap();
+                            this.socket.clone().send_to(&msg, format!("0.0.0.0:809{}", robot_id)).await.unwrap();
+                            // change my states as coordinator
+                            let mut robot_states = this.robot_states.lock().await;
+                            robot_states.insert(robot_id, false);
+                        }else{
+                            // if no robot was assigned to the order
+                            // remove the order from the order queue
+                            let mut order_queue = this.order_queue.lock().await;
+                            order_queue.retain(|o| o.id() != order.id());
+                        }          
+                        // send abort message to the screen
+                        let addr: SocketAddr = SocketAddr::new(order_state.screen_addr.ip(), order_state.screen_addr.port());
+                        this.send_abort_message(order_state.order.id(), &addr);
+                    });                    
                 }
-            
-                
-
-
             }
         }
     }
@@ -319,6 +333,7 @@ async fn main() {
             "abort" => {
                 let order: Order = serde_json::from_str(&parts.next().unwrap()).unwrap();
                 println!("[COORDINATOR] Received abort message for order: {}", order.id());
+
                 let abort = ScreenMessage::Abort {
                     order,
                 };

@@ -10,4 +10,5 @@ pub struct OrderState {
     pub order: Order,
     pub status: OrderStatus,
     pub screen_addr: SocketAddr,
+    pub robot_id: Option<usize>,
 }

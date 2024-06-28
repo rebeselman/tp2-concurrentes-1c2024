@@ -44,10 +44,6 @@ impl Robot {
 
 
     /// Makes a request to the coordinator
-    /// Could be a request of:
-    /// * SolicitarAcceso - Request access to a set of flavors
-    /// * LiberarAcceso - Release access to a flavor
-    /// * OrdenTerminada - Notify that an order has been completed
     fn make_request(&self, request: &RobotResponse) -> io::Result<()> {
         let mut message: Vec<u8> = b"access\n".to_vec();
         let request_serialized = serde_json::to_vec(request)?;
@@ -78,11 +74,7 @@ impl Robot {
         println!("[Robot {}] Requesting access for flavors: {:?}", self.robot_id, flavors);
         self.state = RobotState::WaitingForAccess(order.clone(), flavors.clone());
 
-        // let request = RequestToCoordinator::SolicitarAcceso {
-        //     robot_id: self.robot_id,
-        //     flavors: flavors.clone(),
-        // };
-
+    
         let request = RobotResponse::AccessRequest {
             robot_id: self.robot_id,
             flavors: flavors.clone(),
@@ -97,10 +89,6 @@ impl Robot {
     /// # Arguments
     /// * `flavor` - An IceCreamFlavor representing the flavor that the robot is releasing access to
     fn release_access(&mut self, flavor: IceCreamFlavor) -> io::Result<()> {
-        // let request = RequestToCoordinator::LiberarAcceso {
-        //     robot_id: self.robot_id,
-        //     flavor,
-        // };
         let request = RobotResponse::ReleaseRequest {
             robot_id: self.robot_id,
             flavor,
@@ -121,9 +109,6 @@ impl Robot {
             println!("[Robot {}] Access allowed for flavor {:?}", self.robot_id, &flavor);
         }
     
-        // Simulate processing time of ice cream should be based on container size !!!
-        
-        
         thread::sleep(Duration::from_nanos(order.time_to_prepare() as u64 ));
         self.release_access(flavor.clone())?;
     
@@ -133,10 +118,7 @@ impl Robot {
             self.request_access(&order, &flavor_needed)?;
         } else {
             println!("[Robot {}] Order completed", self.robot_id);
-            // let request = RequestToCoordinator::OrdenTerminada {
-            //     robot_id: self.robot_id,
-            //     order: order.clone(),
-            // };
+           
             let request = RobotResponse::OrderFinished {
                 robot_id: self.robot_id,
                 order: order.clone(),
@@ -171,11 +153,16 @@ impl Robot {
 
     fn abort_order(&mut self, _robot_id: usize, order: Order) -> io::Result<()>{
         match self.state {
-            RobotState::WaitingForAccess(ref waiting_order, _) => {
+
+            RobotState::WaitingForAccess(ref _waiting_order, _) => {
                 self.state = RobotState::Idle;
+                println!("[ROBOT {} ]Order aborted: {:?}", self.robot_id, order.id());
             }
-            RobotState::ProcessingOrder(ref processing_order) => {
+            RobotState::ProcessingOrder(ref _processing_order) => {
                 self.state = RobotState::Idle;
+
+                println!("[ROBOT {} ]Order aborted: {:?}", self.robot_id, order.id());
+                
             }
             _ => {}
         }

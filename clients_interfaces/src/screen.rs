@@ -166,9 +166,10 @@ impl Screen {
                 }
                 
             }
-            else {
+            else if responses[PAYMENT_GATEWAY] != Some(expected) {
                 return Ok(false);
             }
+           
             
 
             

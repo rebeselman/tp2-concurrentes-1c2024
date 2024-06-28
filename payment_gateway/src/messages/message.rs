@@ -18,12 +18,7 @@ pub trait Message {
     /// The format will be:
     /// {order_id}\n{message_type}
     fn process(&self) -> Vec<u8> {
-        format!(
-            "{}\n{}",
-            self.get_order().id(),
-            self.get_response_type()
-        )
-        .into_bytes()
+        format!("{}\n{}", self.get_order().id(), self.get_response_type()).into_bytes()
     }
 
     /// Generates a log entry for the message and returns it as a string.

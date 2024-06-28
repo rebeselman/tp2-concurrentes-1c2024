@@ -5,7 +5,7 @@ use tokio::net::UdpSocket;
 
 const PAYMENT_GATEWAY_IP: &str = "127.0.0.1:8081";
 
-/// Asynchronously handles incoming messages from the screens on a UDP socket, 
+/// Asynchronously handles incoming messages from the screens on a UDP socket,
 /// processes them, sends responses back, and logs each message.
 ///
 /// # Errors

@@ -84,7 +84,7 @@ impl Coordinator {
 
 
             let msg = serde_json::to_vec(&OrderReceived { robot_id, order}).unwrap();
-            self.socket.send_to(&msg, format!("0.0.0.0:809{}", robot_id)).await.unwrap();
+            self.socket.send_to(&msg, format!("127.0.0.1:809{}", robot_id)).await.unwrap();
             println!("[COORDINATOR] Order assigned to robot {}", robot_id);
         } else {
             // All robots are busy, handle accordingly (e.g., add to a queue)
@@ -227,7 +227,7 @@ impl Handler<ScreenMessage> for Coordinator {
                         if let Some(robot_id) =  order_state.robot_id {
                             // send abort message to the robot 
                             let msg = serde_json::to_vec(&CoordinatorMessage::OrderAborted { robot_id, order }).unwrap();
-                            this.socket.clone().send_to(&msg, format!("0.0.0.0:809{}", robot_id)).await.unwrap();
+                            this.socket.clone().send_to(&msg, format!("127.0.0.1:809{}", robot_id)).await.unwrap();
                             // change my states as coordinator
                             let mut robot_states = this.robot_states.lock().await;
                             robot_states.insert(robot_id, false);

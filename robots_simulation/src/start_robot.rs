@@ -7,7 +7,7 @@ use robots_simulation::robot::Robot;
 use robots_simulation::coordinator_messages::CoordinatorMessage::{self, AccessAllowed, AccessDenied, OrderReceived, ACK};
 fn main() -> io::Result<()> {
     let robot_id: usize = std::env::args().nth(1).unwrap().parse().unwrap();
-    let addr = format!("0.0.0.0:809{}", robot_id);
+    let addr = format!("127.0.0.1:809{}", robot_id);
     let socket = UdpSocket::bind(&addr)?;
     socket.set_read_timeout(Some(Duration::from_secs(1)))?;
     let server_addr = "127.0.0.1:8080".to_string();

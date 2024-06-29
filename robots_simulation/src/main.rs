@@ -1,29 +1,35 @@
-use std::process::{Command, Child};
+use std::process::{Child, Command};
+
 
 const NUM_ROBOTS: usize = 4;
 
-fn main() {
+fn main()  -> Result<(), Box<dyn std::error::Error>> {
     // Este es el proceso principal de la Gestión de Pedidos
-    let mut coordinador = launch_coordinador();
-    let robots = launch_robots(NUM_ROBOTS);
+    let mut coordinador: Child = launch_coordinador()?;
+    let robots: Vec<Child> = launch_robots(NUM_ROBOTS)?;
 
     // Esperar a que todos los procesos terminen
     robots.into_iter().for_each(|mut robot| {
-        let _ = robot.wait().expect("Robot process wasn't running");
+        match robot.wait(){
+            Ok(_) => println!("Robot process finished"),
+            Err(e) => eprintln!("Error: {}", e)
+        
+        }// Update this line
     });
-    let _ = coordinador.wait().expect("Coordinator process wasn't running");
+    let _ = coordinador.wait()?;
+    Ok(())
 }
 
-fn launch_coordinador() -> Child {
+fn launch_coordinador() -> Result<Child, std::io::Error> {
     Command::new("cargo")
         .arg("run")
         .arg("--bin")
         .arg("coordinador")
         .spawn()
-        .expect("Failed to launch coordinator process")
+        
 }
 
-fn launch_robots(num_robots: usize) -> Vec<Child> {
+fn launch_robots(num_robots: usize) -> Result<Vec<Child>, std::io::Error>{
     let mut robots: Vec<Child> = Vec::new();
 
     for i in 0..num_robots {
@@ -33,10 +39,10 @@ fn launch_robots(num_robots: usize) -> Vec<Child> {
             .arg("robot")
             .arg("--")
             .arg(format!("{}", i))
-            .spawn()
-            .expect("Failed to launch robot process");
+            .spawn()?;
+
         robots.push(child);
     }
 
-    robots
+    Ok(robots)
 }

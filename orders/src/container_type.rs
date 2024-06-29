@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 // no se cómo traducir esto a inglés :D
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub enum ContainerType {
     Cup,
     Cone,

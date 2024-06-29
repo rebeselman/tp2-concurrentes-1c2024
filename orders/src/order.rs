@@ -2,7 +2,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::item::Item;
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct Order {
     order_id: usize,
     client_id: usize,
@@ -51,5 +51,9 @@ impl Order {
         return &self.items
     }
 
+
+    pub fn time_to_prepare(&self)-> u32 {
+        return self.items.iter().map(|item| item.time_to_prepare()).sum()
+    }
     
 }

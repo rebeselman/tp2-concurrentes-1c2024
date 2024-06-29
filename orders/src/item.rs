@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use crate::{container_type::ContainerType, ice_cream_flavor::IceCreamFlavor};
 
 /// Contains the units of the item, the type of container and the ice cream flavor's requested
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct Item {
     container: ContainerType,
     units: u32,
@@ -40,5 +40,18 @@ impl Item {
     /// To obtain the flavors of this item
     pub fn flavors(&self)-> &Vec<IceCreamFlavor> {
         return &self.flavors
+    }
+
+
+    /// Time to prepare one item should be based on container type
+    pub fn time_to_prepare(&self)-> u32 {
+        match self.container {
+            ContainerType::Cup => 2,
+            ContainerType::Cone => 1,
+            ContainerType::OneKilo => 5,
+            ContainerType::HalfKilo => 4,
+            ContainerType::QuarterKilo => 3
+
+        }
     }
 }

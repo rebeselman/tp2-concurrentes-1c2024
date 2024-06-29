@@ -121,6 +121,20 @@ El mensaje podrá ser de tipo:
 - `finished`: Es la respuesta que se le da al mensaje `commit` cuando se llega a la segunda fase de la transacción.
 - `keepalive`: Se utiliza para indicar que la pantalla no está caída y está intentando terminar la preparación del pedido (solo lo envía Gestión de Pedidos).
 
+### Cómo ejecutar las aplicaciones
+
+#### Gestión de Pedidos
+
+Se corre cada robot con:
+cargo run --bin robot n
+
+Al coordinador con:
+cargo run --bin coordinador
+
+#### Interfaces de Clientes
+
+Se ejecutan las pantallas con
+cargo run --bin clients_interfaces
 
 #### Mensajes entre Robots y Coordinador
 Para pedir y liberar el acceso a los contenedores de helado e indicarle al coordinador que se completó la orden, se utilizará el siguiente formato de mensaje: 

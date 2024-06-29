@@ -1,7 +1,7 @@
 //! Supported flavors for ice cream
 
 use serde::{Deserialize, Serialize};
-#[derive(Debug, Clone, Copy,Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy,Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub enum IceCreamFlavor {
     Chocolate,
     Strawberry,

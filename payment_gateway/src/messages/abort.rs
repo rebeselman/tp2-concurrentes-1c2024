@@ -1,5 +1,5 @@
 use super::message::Message;
-use crate::orders::order::Order;
+use orders::order::Order;
 
 /// Represents an `Abort` message with its corresponding order.
 pub struct Abort {

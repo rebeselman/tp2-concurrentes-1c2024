@@ -1,7 +1,7 @@
 use super::abort::Abort;
 use super::commit::Commit;
 use super::prepare::Prepare;
-use crate::orders::order::Order;
+use orders::order::Order;
 
 /// Trait representing a generic message.
 pub trait Message {
@@ -18,12 +18,7 @@ pub trait Message {
     /// The format will be:
     /// {order_id}\n{message_type}
     fn process(&self) -> Vec<u8> {
-        format!(
-            "{}\n{}",
-            self.get_order().order_id,
-            self.get_response_type()
-        )
-        .into_bytes()
+        format!("{}\n{}", self.get_order().id(), self.get_response_type()).into_bytes()
     }
 
     /// Generates a log entry for the message and returns it as a string.

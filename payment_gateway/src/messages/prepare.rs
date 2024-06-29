@@ -1,5 +1,5 @@
 use super::message::Message;
-use crate::orders::order::Order;
+use orders::order::Order;
 use rand::Rng;
 
 const CAPTURE_PROBABILITY: f64 = 0.9;

@@ -65,14 +65,27 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_prepare_msg_created_correctly() {
+        let order = Order::new(9, 25, "0000111122223333".to_string(), Vec::new());
+        let prepare_msg = Prepare::new(order);
+        assert_eq!(prepare_msg.get_order().id(), 9);
+        assert_eq!(prepare_msg.get_order().client_id(), 25);
+        assert_eq!(
+            prepare_msg.get_order().credit_card(),
+            "0000111122223333".to_string()
+        );
+        assert!(prepare_msg.get_order().items().is_empty())
+    }
+
+    #[test]
     fn test_payment_captured() {
         let prepare_msg = Prepare::new(Order::default());
         let mut mock = MockRandomNumberGenerator::new();
         mock.expect_generate_bool().returning(|_| true);
         assert_eq!(
-            "ready".to_string(),
-            prepare_msg.get_response_type(&mut mock)
-        );
+            prepare_msg.get_response_type(&mut mock),
+            "ready".to_string()
+        )
     }
 
     #[test]
@@ -81,8 +94,8 @@ mod tests {
         let mut mock = MockRandomNumberGenerator::new();
         mock.expect_generate_bool().returning(|_| false);
         assert_eq!(
-            "abort".to_string(),
-            prepare_msg.get_response_type(&mut mock)
-        );
+            prepare_msg.get_response_type(&mut mock),
+            "abort".to_string()
+        )
     }
 }

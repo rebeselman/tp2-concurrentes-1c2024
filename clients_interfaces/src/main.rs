@@ -33,7 +33,7 @@ fn launch_screens() -> Vec<Child> {
         let child = Command::new("cargo")
             .arg("run")
             .arg("--bin")
-            .arg("screen_process")
+            .arg("screen")
             .arg(id.to_string())
             .spawn().unwrap_or_else(|e| {
             eprintln!("Error: {}", e);

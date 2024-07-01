@@ -8,10 +8,17 @@ edition = "2021"
 name = "screen_process"
 path = "src/screen_process.rs"
 
+
+
+[[bin]]
+name = "screen"
+path = "src/screen.rs"
+
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 actix = "0.13"
+actix-rt = "2.0"
 rayon = "1.5.1"
 serde = { version = "1.0.193", features = ["derive"] }
 serde_json = "1.0.108"

@@ -4,6 +4,7 @@ use tokio::io;
 use tokio::net::UdpSocket;
 
 const PAYMENT_GATEWAY_IP: &str = "127.0.0.1:8081";
+const LOG_FILE_PATH: &str = "log.txt";
 
 /// Asynchronously handles incoming messages from the screens on a UDP socket,
 /// processes them, sends responses back, and logs each message.
@@ -64,7 +65,7 @@ pub fn run() -> Result<(), String> {
     let runtime = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
 
     runtime.block_on(async {
-        let logger = Logger::new().await?;
+        let logger = Logger::new(LOG_FILE_PATH).await?;
         if let Err(err) = handle_messages(logger).await {
             eprintln!("[Payment Gateway] Error handling messages: {}", err);
         }

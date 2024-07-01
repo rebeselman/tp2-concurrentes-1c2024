@@ -16,7 +16,7 @@ pub trait Message {
 
     /// Returns a vector of bytes representing the respond message.
     /// The format will be:
-    /// {order_id}\n{message_type}
+    /// `{order_id}\n{message_type}`.
     fn process(&self) -> Vec<u8> {
         format!("{}\n{}", self.get_order().id(), self.get_response_type()).into_bytes()
     }
@@ -35,8 +35,8 @@ pub trait Message {
 }
 
 /// Converts the message string to its correspondent object type.
-/// The string format should be:
-/// {message_type}\n{payload}\0
+/// The string format should be
+/// `{message_type}\n{payload}`
 /// with payload being the serialized Order.
 ///
 /// # Errors

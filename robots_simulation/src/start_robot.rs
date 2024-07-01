@@ -10,7 +10,7 @@ fn build() -> io::Result<(usize, usize, String)> {
     let is_coordinator: usize = std::env::args().nth(2).unwrap().parse().unwrap();
     let addr = format!("127.0.0.1:809{}", robot_id);
 
-    return Ok((robot_id, is_coordinator, addr));
+    Ok((robot_id, is_coordinator, addr))
 }
 
 

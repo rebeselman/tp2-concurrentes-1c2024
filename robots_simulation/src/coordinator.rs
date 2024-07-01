@@ -11,7 +11,6 @@ use tokio::sync::Mutex;
 use orders::ice_cream_flavor::IceCreamFlavor;
 use orders::order::Order;
 use serde_json::from_str;
-use crate::robot::Robot;
 use crate::robot_state_for_coordinator::RobotStateForCoordinator;
 use super::order_status_screen::OrderState;
 use super::robot_messages::RobotResponse;
@@ -91,7 +90,7 @@ impl Coordinator {
 
                 let robot_port: u16 = from_str::<u16>(format!("809{}", robot_id).as_str()).expect("Error parsing port");
                 let addr: SocketAddr = SocketAddr::from(([0, 0, 0, 0], robot_port));
-                send_response(&self.socket, &OrderReceived { robot_id, order, screen_addr: screen_addr.clone() }, addr).await;
+                send_response(&self.socket, &OrderReceived { robot_id, order, screen_addr: *screen_addr }, addr).await;
                 println!("[COORDINATOR] Order assigned to robot {}", robot_id);
                 return;
             }
@@ -132,7 +131,7 @@ impl Coordinator {
                 container_state.in_use_by = Some(robot_id);
                 container_state.quantity -= 1; // Decrement quantity for simplicity
                 println!("[COORDINATOR] Robot {} is requesting access to container {:?}", robot_id, flavor);
-                AccessAllowed { flavor: flavor.clone() }
+                AccessAllowed { flavor: *flavor }
             } else {
                 AccessDenied { reason: "Container already in use or empty".into() }
             };
@@ -140,12 +139,10 @@ impl Coordinator {
             if matches!(response, AccessAllowed { .. }) {
                 let robot_state = self.robot_states.get(&robot_id).unwrap().clone();
                 let mut robot_state = robot_state.lock().await;
-                match *robot_state {
-                    RobotStateForCoordinator::Busy { order_id } => {
-                        *robot_state = RobotStateForCoordinator::UsingContainer { order_id, flavor: flavor.clone() };
-                    }
-                    _ => {}
+                if let RobotStateForCoordinator::Busy { order_id } = *robot_state {
+                    *robot_state = RobotStateForCoordinator::UsingContainer { order_id, flavor: *flavor };
                 }
+
                 return;
             }
         }
@@ -156,7 +153,7 @@ impl Coordinator {
 
 
     fn release_access_to_flavor(&mut self, robot_id: usize, flavor: &IceCreamFlavor) {
-        let container = self.containers.get(&flavor).unwrap().clone();
+        let container = self.containers.get(flavor).unwrap().clone();
         let this = self.clone();
         println!("[COORDINATOR] Releasing access for container {:?} from {:?}", flavor, robot_id);
         actix_rt::spawn(async move {
@@ -172,7 +169,7 @@ impl Coordinator {
     /// Sends a finish message to the screen
     fn send_finish_message(&self, order_id: usize, addr: &SocketAddr) {
         let socket = self.socket.clone();
-        let addr = addr.clone();
+        let addr = *addr;
         actix_rt::spawn(async move {
             let message = format!("{}\nfinished", order_id).into_bytes();
             socket.send_to(&message, &addr).await.unwrap();
@@ -183,7 +180,7 @@ impl Coordinator {
     /// Send abort message to the screen
     fn send_abort_message(&self, order_id: usize, addr: &SocketAddr) {
         let socket = self.socket.clone();
-        let addr = addr.clone();
+        let addr = *addr;
         actix_rt::spawn(async move {
             let message = format!("{}\nabort", order_id).into_bytes();
             socket.send_to(&message, &addr).await.unwrap();
@@ -199,7 +196,7 @@ impl Coordinator {
             } else if order_state.status == CompletedButNotCommited {
                 order_state.status = Completed;
                 send_finished = true;
-                addr = order_state.screen_addr.clone();
+                addr = order_state.screen_addr;
             }
         }
         // If address is not null
@@ -242,7 +239,7 @@ impl Coordinator {
         if let Some(order_state) = self.orders.get(&order_id) {
             if order_state.status == Pending || order_state.status == CommitReceived {
                 let mut this = self.clone();
-                let addr = order_state.screen_addr.clone();
+                let addr = order_state.screen_addr;
                 actix_rt::spawn(async move {
                     this.send_ready_message(&order, &addr).await;
                     this.assign_order_to_robot(order, &addr).await;
@@ -308,7 +305,7 @@ impl Handler<ScreenMessage> for Coordinator {
             ScreenMessage::OrderRequest { order, screen_addr } => {
                 self.register_order(screen_addr, &order);
                 let order = order.clone();
-                let addr = screen_addr.clone();
+                let addr = screen_addr;
                 let mut this = self.clone();
                 actix_rt::spawn(async move {
                     this.send_ready_message(&order, &addr).await;
@@ -356,15 +353,19 @@ impl Handler<RobotResponse> for Coordinator {
                         self.send_finish_message(order_id, &order_state.screen_addr);
                     }
                 }
-                let robot_states = self.robot_states.clone();
                 let robot_state = self.robot_states.get(&robot_id).unwrap().clone();
                 actix_rt::spawn(async move {
                     let mut robot_state = robot_state.lock().await;
                     *robot_state = RobotStateForCoordinator::Idle;
                 });
             }
-            RobotResponse::OrderInProcess { robot_id, order, addr, screen_addr } => {
+            RobotResponse::OrderInProcess { robot_id, order, addr: _addr, screen_addr } => {
                 self.register_order(screen_addr, &order);
+                let robot_state = self.robot_states.get(&robot_id).unwrap().clone();
+                actix_rt::spawn( async move {
+                    let mut robot_state = robot_state.lock().await;
+                    *robot_state = RobotStateForCoordinator::Busy { order_id: order.id() };
+                });
             }
             RobotResponse::ReassignOrder { robot_id } => {
                 let mut this = self.clone();

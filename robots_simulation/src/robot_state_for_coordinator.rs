@@ -7,10 +7,6 @@ pub enum RobotStateForCoordinator {
     Busy {
         order_id: usize,
     },
-    WaitingForAccess {
-        order_id: usize,
-        flavors: Vec<IceCreamFlavor>,
-    },
     UsingContainer {
         order_id: usize,
         flavor: IceCreamFlavor,

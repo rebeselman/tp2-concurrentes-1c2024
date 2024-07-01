@@ -200,7 +200,7 @@ impl Robot {
         let election_message = ElectionMessage::Election { robot_id: self.robot_id };
         let msg_serialized = serde_json::to_vec(&election_message).unwrap();
         message.extend_from_slice(&msg_serialized);
-        for ((peer, _)) in self.peers.iter() {
+        for (peer, _) in self.peers.iter() {
             // Get the id of the peer from last number in peer:
             let i = peer.chars().last().unwrap().to_digit(10).unwrap() as usize;
             if i > self.robot_id {
@@ -257,7 +257,7 @@ impl Robot {
         }
 
         thread::sleep(Duration::from_secs(order.time_to_prepare() as u64 ));
-        self.release_access(flavor.clone())?;
+        self.release_access(flavor)?;
 
         let flavor_needed: Vec<IceCreamFlavor> = flavors.into_iter().filter(|other| *other != flavor).collect();
 
@@ -292,7 +292,7 @@ impl Robot {
             }
             _ => {
                 self.process_order(&order)?;
-                self.order_screen_addr = Some(screen_addr.clone());
+                self.order_screen_addr = Some(*screen_addr);
             }
         }
         Ok(())
@@ -479,7 +479,7 @@ impl Actor for Robot {
         println!("Robot {} started", self.robot_id);
 
         // Start sending pings at regular intervals
-        ctx.run_interval(Duration::from_secs(5), |robot, ctx| {
+        ctx.run_interval(Duration::from_secs(5), |robot, _ctx| {
             if robot.election_state == ElectionState::None {
                 robot.send_ping();
             }
@@ -500,7 +500,7 @@ impl Actor for Robot {
             if robot.election_state == ElectionState::StartingElection {
                 robot.initiate_election();
                 // Schedule the election result check after 10 seconds
-                ctx.run_later(Duration::from_secs(10), |robot, ctx| {
+                ctx.run_later(Duration::from_secs(10), |robot, _ctx| {
                     robot.check_election_results();
                 });
             }
@@ -519,19 +519,17 @@ impl StreamHandler<io::Result<(usize, Vec<u8>, SocketAddr)>> for Robot {
             let message_type = parts.next().unwrap();
             // println!("Robot {}: Received message: {}", self.robot_id, message_type);
             if message_type == "ping" {
-                let message: PingMessage = serde_json::from_str(&parts.next().unwrap()).unwrap();
+                let message: PingMessage = serde_json::from_str(parts.next().unwrap()).unwrap();
                 self.handle_ping_message(message, addr);
             } else if message_type == "election" {
-                let message: ElectionMessage = serde_json::from_str(&parts.next().unwrap()).unwrap();
+                let message: ElectionMessage = serde_json::from_str(parts.next().unwrap()).unwrap();
                 self.handle_election_message(message);
+            } else if self.is_coordinator {
+                // println!("Handling as coordinator");
+                self.handle_as_coordinator(message_type, parts, addr);
             } else {
-                if self.is_coordinator {
-                    // println!("Handling as coordinator");
-                    self.handle_as_coordinator(message_type, parts, addr);
-                } else {
-                    let message: CoordinatorMessage = serde_json::from_str(&parts.next().unwrap()).unwrap();
-                    self.handle_as_robot(message);
-                }
+                let message: CoordinatorMessage = serde_json::from_str(parts.next().unwrap()).unwrap();
+                self.handle_as_robot(message);
             }
         } else {
             eprintln!("[Robot {}] Error receiving message", self.robot_id);

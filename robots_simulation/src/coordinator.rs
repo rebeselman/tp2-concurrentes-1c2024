@@ -11,6 +11,7 @@ use tokio::sync::Mutex;
 use orders::ice_cream_flavor::IceCreamFlavor;
 use orders::order::Order;
 use serde_json::from_str;
+use crate::container::Container;
 use crate::robot_state_for_coordinator::RobotStateForCoordinator;
 use super::order_status_screen::OrderState;
 use super::robot_messages::RobotResponse;
@@ -18,11 +19,9 @@ use super::screen_message::ScreenMessage;
 use super::coordinator_messages::CoordinatorMessage::{self, AccessAllowed, AccessDenied, OrderReceived};
 use super::order_status::OrderStatus::{CommitReceived, Completed, CompletedButNotCommited, Pending};
 
-#[derive(Clone)]
-struct Container {
-    quantity: usize,
-    in_use_by: Option<usize>,
-}
+type FlavorRequest = (Vec<IceCreamFlavor>, usize, SocketAddr);
+type FlavorRequestQueue = VecDeque<FlavorRequest>;
+type SharedFlavorRequestQueue = Arc<Mutex<FlavorRequestQueue>>;
 
 #[derive(Clone)]
 /// Coordinator
@@ -37,7 +36,7 @@ struct Container {
 pub struct Coordinator {
     containers: HashMap<IceCreamFlavor, Arc<Mutex<Container>>>,
     socket: Arc<UdpSocket>,
-    flavor_requests: Arc<Mutex<VecDeque<(Vec<IceCreamFlavor>, usize, SocketAddr)>>>,
+    flavor_requests: SharedFlavorRequestQueue,
     order_queue: Arc<Mutex<VecDeque<Order>>>,
     robot_states: HashMap<usize, Arc<Mutex<RobotStateForCoordinator>>>,
     orders: HashMap<usize, OrderState>
@@ -60,7 +59,7 @@ impl Coordinator {
         ];
         // Faltaría modelar el stock de los contenedores!!!
         let containers = flavors.into_iter()
-            .map(|flavor| (flavor, Arc::new(Mutex::new(Container { quantity: INITIAL_QUANTITY, in_use_by: None }))))
+            .map(|flavor| (flavor, Arc::new(Mutex::new(Container::new(INITIAL_QUANTITY)))))
             .collect();
 
         let robot_states = (1..=NUMBER_ROBOTS).map(|id| (id, Arc::new(Mutex::new(RobotStateForCoordinator::Idle)))).collect();
@@ -127,9 +126,8 @@ impl Coordinator {
         for flavor in flavors {
             let container = self.containers.get(flavor).unwrap().clone();
             let mut container_state = container.lock().await;
-            let response = if container_state.in_use_by.is_none() && container_state.quantity > 0 {
-                container_state.in_use_by = Some(robot_id);
-                container_state.quantity -= 1; // Decrement quantity for simplicity
+            let response = if container_state.is_available() && container_state.quantity() > 0 {
+                container_state.use_container(robot_id, 1);
                 println!("[COORDINATOR] Robot {} is requesting access to container {:?}", robot_id, flavor);
                 AccessAllowed { flavor: *flavor }
             } else {
@@ -158,7 +156,7 @@ impl Coordinator {
         println!("[COORDINATOR] Releasing access for container {:?} from {:?}", flavor, robot_id);
         actix_rt::spawn(async move {
             let mut container_state = container.lock().await;
-            container_state.in_use_by = None;
+            container_state.release_container()
         });
         actix_rt::spawn(async move {
             this.process_queue().await;

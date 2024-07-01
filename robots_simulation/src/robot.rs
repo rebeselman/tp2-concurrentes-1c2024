@@ -141,9 +141,9 @@ impl Robot {
         }
     }
 
-    fn ping_all_peers(&mut self, message: &mut Vec<u8>) {
+    fn ping_all_peers(&mut self, message:  &mut [u8]) {
         for (peer_addr, status) in &mut self.peers {
-            let message_to_peer = message.clone();
+            let message_to_peer = message.to_owned();
             let socket = self.socket.clone();
             let addr = peer_addr.clone();
             actix_rt::spawn(async move {

@@ -3,24 +3,23 @@
 use std::collections::{HashMap, HashSet};
 use std::io;
 use std::net::SocketAddr;
-use tokio::net::UdpSocket;
 use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
-use orders::{ice_cream_flavor::IceCreamFlavor, order::Order};
 
 use actix::prelude::*;
-use futures::stream::once;
-
+use orders::{ice_cream_flavor::IceCreamFlavor, order::Order};
+use tokio::net::UdpSocket;
 use tokio::time::Instant;
-use crate::{coordinator_messages::CoordinatorMessage, robot_messages::RobotResponse, robot_state:: RobotState};
+
+use crate::{coordinator_messages::CoordinatorMessage, robot_messages::RobotResponse, robot_state::RobotState};
 use crate::election_message::ElectionMessage;
 use crate::election_state::ElectionState;
 use crate::ping_message::{PeerStatus, PingMessage};
 use crate::screen_message::ScreenMessage;
 use crate::udp_message_stream::UdpMessageStream;
+
 use super::coordinator::Coordinator;
-use super::message::Message;
 
 const NUMBER_ROBOTS: usize = 5;
 
@@ -37,6 +36,7 @@ pub struct Robot {
     socket: Arc<UdpSocket>,
     coordinator_addr: String,
     state: RobotState,
+    order_screen_addr: Option<SocketAddr>,
     is_coordinator: bool,
     pub coordinator: Option<Addr<Coordinator>>,
     peers: HashMap<String, PeerStatus>,
@@ -56,6 +56,7 @@ impl Robot {
             socket,
             coordinator_addr,
             state: RobotState::Idle,
+            order_screen_addr: None,
             is_coordinator,
             coordinator: None,
             peers: (0..NUMBER_ROBOTS).filter(|&id| id != robot_id).map(|id| (format!("127.0.0.1:809{}", id), PeerStatus { last_pong: None, ping_attempts: 0 })).collect(),
@@ -128,7 +129,20 @@ impl Robot {
         let ping_message = PingMessage::Ping;
         let ping_serialized = serde_json::to_vec(&ping_message).unwrap();
         message.extend_from_slice(&ping_serialized);
-        for (peer_addr, mut status) in &mut self.peers {
+        if self.is_coordinator {
+            self.ping_all_peers(&mut message);
+        } else {
+            // Only ping coordinator
+            let coordinator_addr = self.coordinator_addr.clone();
+            let socket = self.socket.clone();
+            actix_rt::spawn(async move {
+                socket.send_to(&message, coordinator_addr).await.unwrap();
+            });
+        }
+    }
+
+    fn ping_all_peers(&mut self, message: &mut Vec<u8>) {
+        for (peer_addr, status) in &mut self.peers {
             let message_to_peer = message.clone();
             let socket = self.socket.clone();
             let addr = peer_addr.clone();
@@ -136,28 +150,46 @@ impl Robot {
                 socket.send_to(&message_to_peer, addr).await.unwrap();
             });
             status.ping_attempts += 1;
-            // println!("Robot {}: Sent ping to {}. Attempt: {}", self.robot_id, &peer_addr, status.ping_attempts);
         }
     }
 
     fn check_peers_status(&mut self) {
         let now = Instant::now();
+        let mut peers_to_remove = Vec::new();
+
         for (peer_addr, status) in &self.peers {
             if let Some(last_pong) = status.last_pong {
                 let duration_since_last_pong = now.duration_since(last_pong);
-                println!("Robot {}: Peer {} last pong received {} seconds ago. Ping attempts: {}",
-                         self.robot_id, peer_addr, duration_since_last_pong.as_secs(), status.ping_attempts);
-                if duration_since_last_pong > Duration::from_secs(10) {
-                    // Start election!
-                    // Check if address is coordinator
-                    if self.coordinator_addr == peer_addr.as_str() {
-                        println!("Robot {}: Coordinator {} has failed. Initiating election", self.robot_id, peer_addr);
-                        self.election_state = ElectionState::StartingElection;
-                    }
+                /*println!("Robot {}: Peer {} last pong received {} seconds ago. Ping attempts: {}",
+                         self.robot_id, peer_addr, duration_since_last_pong.as_secs(), status.ping_attempts);*/
+                if duration_since_last_pong > Duration::from_secs(20) && status.ping_attempts >= 5 {
+                    println!("Robot {}: Peer {} has failed. Reassigning order", self.robot_id, peer_addr);
+                    peers_to_remove.push(peer_addr.clone());
+                    let peer_id = peer_addr.chars().last().unwrap().to_digit(10).unwrap() as usize;
+                    let request = RobotResponse::ReassignOrder { robot_id: peer_id };
+                    let coordinator = self.coordinator.clone().unwrap();
+                    coordinator.do_send(request);
                 }
             } else {
                 println!("Robot {}: Peer {} has never responded. Ping attempts: {}",
                          self.robot_id, peer_addr, status.ping_attempts);
+            }
+        }
+        for peer_addr in peers_to_remove {
+            self.peers.remove(&peer_addr);
+        }
+    }
+
+    fn check_coordinador_status(&mut self) {
+        // Find coordinator in peers
+        if let Some(status) = self.peers.get(&self.coordinator_addr) {
+            if let Some(last_pong) = status.last_pong {
+                let now = Instant::now();
+                let duration_since_last_pong = now.duration_since(last_pong);
+                if duration_since_last_pong > Duration::from_secs(20) && status.ping_attempts >= 5 {
+                    println!("Robot {}: Coordinator {} has failed. Initiating election", self.robot_id, self.coordinator_addr);
+                    self.election_state = ElectionState::StartingElection;
+                }
             }
         }
     }
@@ -252,7 +284,7 @@ impl Robot {
         Ok(())
     }
 
-    fn process_received_order(&mut self, _robot_id: usize, order: Order) -> io::Result<()>{
+    fn process_received_order(&mut self, _robot_id: usize, order: Order, screen_addr: &SocketAddr) -> io::Result<()>{
         match self.state {
             RobotState::ProcessingOrder(_) => {
                 println!("[Robot {}] Already processing an order", self.robot_id);
@@ -260,11 +292,43 @@ impl Robot {
             }
             _ => {
                 self.process_order(&order)?;
+                self.order_screen_addr = Some(screen_addr.clone());
             }
         }
         Ok(())
     }
 
+    /// Sends current order to new coordinator, so it keeps track
+    /// of all robot orders
+    fn send_current_order_to_new_coordinator(&mut self) -> io::Result<()> {
+        let order = match &self.state {
+            RobotState::WaitingForAccess(order, _flavors) => order.clone(),
+            RobotState::ProcessingOrder(order) => order.clone(),
+            _ => return Ok(())
+        };
+        // Send the order to the new coordinator
+        self.send_order_in_process_message(&order)?;
+        Ok(())
+    }
+
+    fn send_order_in_process_message(&mut self, order: &Order) -> io::Result<()> {
+        // If self.order_screen_addr is Some, send request
+        match self.order_screen_addr {
+            Some(screen_addr) => {
+                let request = RobotResponse::OrderInProcess {
+                    robot_id: self.robot_id,
+                    order: order.clone(),
+                    addr: self.socket.local_addr()?,
+                    screen_addr
+                };
+                self.make_request(&request)?;
+            }
+            None => {
+                println!("[Robot {}] Order screen address not set", self.robot_id);
+            }
+        }
+        Ok(())
+    }
 
     fn abort_order(&mut self, _robot_id: usize, order: Order) -> io::Result<()>{
         match self.state {
@@ -320,7 +384,6 @@ impl Robot {
                     let msg: RobotResponse = serde_json::from_str(content.as_str()).unwrap();
 
                     coordinator.send(msg).await.unwrap();
-                    //process_access_message(&coordinator, msg, addr).await;
                 },
                 _ => {}
             };
@@ -351,6 +414,7 @@ impl Robot {
                 self.is_coordinator = false;
                 self.election_state = ElectionState::None;
                 self.coordinator_addr = format!("127.0.0.1:809{}", robot_id);
+                self.send_current_order_to_new_coordinator().expect("Error sending order to new coordinator");
             }
             ElectionMessage::Ok { robot_id: _robot_id } => {
                 println!("Robot {}: Received OK message from {}. No longer a candidate", self.robot_id, _robot_id);
@@ -371,13 +435,13 @@ impl Robot {
                     message.extend_from_slice(&pong_serialized);
                     cloned_socket.send_to(&message, addr).await.unwrap();
                 });
-                println!("Robot {}: Sent pong to {}", self.robot_id, addr);
+                // println!("Robot {}: Sent pong to {}", self.robot_id, addr);
             }
             PingMessage::Pong => {
-                println!("Robot {}: Received pong from {}", self.robot_id, addr);
+                // println!("Robot {}: Received pong from {}", self.robot_id, addr);
                 // Update the status of the peer to 0 attempts
                 if let Some(status) = self.peers.get_mut(&addr.to_string()) {
-                    println!("Robot {}: Peer {} responded", self.robot_id, addr);
+                    // println!("Robot {}: Peer {} responded", self.robot_id, addr);
                     status.last_pong = Some(Instant::now());
                     status.ping_attempts = 0;
                 }
@@ -394,14 +458,14 @@ impl Robot {
             CoordinatorMessage::AccessDenied { reason } => {
                 self.process_denied_access(reason).unwrap();
             }
-            CoordinatorMessage::OrderReceived { robot_id, order } => {
-                self.process_received_order(robot_id, order).unwrap();
+            CoordinatorMessage::OrderReceived { robot_id, order, screen_addr } => {
+                self.process_received_order(robot_id, order, &screen_addr).unwrap();
             }
             CoordinatorMessage::OrderAborted { robot_id, order } => {
                 self.abort_order(robot_id, order).unwrap();
             }
             CoordinatorMessage::ACK => {
-                println!("[Robot {}] ACK received", self.robot_id);
+                // println!("[Robot {}] ACK received", self.robot_id);
             }
         }
     }
@@ -424,7 +488,11 @@ impl Actor for Robot {
         // Start checking peers' status at regular intervals
         ctx.run_interval(Duration::from_secs(10), |robot, _ctx| {
             if robot.election_state == ElectionState::None {
-                robot.check_peers_status();
+                if robot.is_coordinator {
+                    robot.check_peers_status();
+                } else {
+                    robot.check_coordinador_status();
+                }
             }
         });
 
@@ -449,7 +517,7 @@ impl StreamHandler<io::Result<(usize, Vec<u8>, SocketAddr)>> for Robot {
             let received_message = String::from_utf8_lossy(&buf[..len]);
             let mut parts = received_message.split('\n');
             let message_type = parts.next().unwrap();
-            println!("Received message: {}", message_type);
+            // println!("Robot {}: Received message: {}", self.robot_id, message_type);
             if message_type == "ping" {
                 let message: PingMessage = serde_json::from_str(&parts.next().unwrap()).unwrap();
                 self.handle_ping_message(message, addr);
@@ -458,7 +526,7 @@ impl StreamHandler<io::Result<(usize, Vec<u8>, SocketAddr)>> for Robot {
                 self.handle_election_message(message);
             } else {
                 if self.is_coordinator {
-                    println!("Handling as coordinator");
+                    // println!("Handling as coordinator");
                     self.handle_as_coordinator(message_type, parts, addr);
                 } else {
                     let message: CoordinatorMessage = serde_json::from_str(&parts.next().unwrap()).unwrap();

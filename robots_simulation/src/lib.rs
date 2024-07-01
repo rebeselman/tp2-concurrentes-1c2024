@@ -12,3 +12,4 @@ mod election_message;
 mod message;
 mod ping_message;
 mod election_state;
+mod robot_state_for_coordinator;

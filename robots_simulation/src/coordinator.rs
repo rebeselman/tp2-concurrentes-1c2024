@@ -6,20 +6,26 @@ use std::collections::{HashMap, VecDeque};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use actix::{Actor, Context, Handler};
-use super::order_status::OrderStatus;
-use super::order_status_screen::OrderState;
-use super::robot_messages::RobotResponse;
-use super::screen_message::ScreenMessage;
 use tokio::net::UdpSocket;
 use tokio::sync::Mutex;
 use orders::ice_cream_flavor::IceCreamFlavor;
 use orders::order::Order;
 use serde_json::from_str;
+use crate::robot::Robot;
+use crate::robot_state_for_coordinator::RobotStateForCoordinator;
+use super::order_status_screen::OrderState;
+use super::robot_messages::RobotResponse;
+use super::screen_message::ScreenMessage;
 use super::coordinator_messages::CoordinatorMessage::{self, AccessAllowed, AccessDenied, OrderReceived};
+use super::order_status::OrderStatus::{CommitReceived, Completed, CompletedButNotCommited, Pending};
 
-use super::order_status::OrderStatus::{Completed, CompletedButNotCommited, Pending};
 #[derive(Clone)]
+struct Container {
+    quantity: usize,
+    in_use_by: Option<usize>,
+}
 
+#[derive(Clone)]
 /// Coordinator
 /// This struct represents the Coordinator actor, which is responsible for managing the access to the ice cream containers and assigning orders to the robots.
 /// It contains the following fields:
@@ -30,15 +36,16 @@ use super::order_status::OrderStatus::{Completed, CompletedButNotCommited, Pendi
 /// * robot_states: Arc<Mutex<HashMap<usize, bool>> - A map of robot IDs to their respective state (busy or available). false means available, true means busy.
 /// * orders: HashMap<usize, OrderState> - A map of order IDs to their respective state.
 pub struct Coordinator {
-    containers: HashMap<IceCreamFlavor, Arc<Mutex<bool>>>,
+    containers: HashMap<IceCreamFlavor, Arc<Mutex<Container>>>,
     socket: Arc<UdpSocket>,
     flavor_requests: Arc<Mutex<VecDeque<(Vec<IceCreamFlavor>, usize, SocketAddr)>>>,
     order_queue: Arc<Mutex<VecDeque<Order>>>,
-    robot_states: Arc<Mutex<HashMap<usize, bool>>>, // Added to track robot states
+    robot_states: HashMap<usize, Arc<Mutex<RobotStateForCoordinator>>>,
     orders: HashMap<usize, OrderState>
 }
 
 const NUMBER_ROBOTS: usize = 5;
+const INITIAL_QUANTITY: usize = 10000; // Initial quantity for each flavor
 
 impl Coordinator {
     /// Creates a new Coordinator actor
@@ -54,43 +61,45 @@ impl Coordinator {
         ];
         // Faltaría modelar el stock de los contenedores!!!
         let containers = flavors.into_iter()
-            .map(|flavor| (flavor, Arc::new(Mutex::new(false))))
+            .map(|flavor| (flavor, Arc::new(Mutex::new(Container { quantity: INITIAL_QUANTITY, in_use_by: None }))))
             .collect();
 
-        let robot_states = (1..NUMBER_ROBOTS).map(|id| (id, false)).collect(); // Initialize robot states
+        let robot_states = (1..=NUMBER_ROBOTS).map(|id| (id, Arc::new(Mutex::new(RobotStateForCoordinator::Idle)))).collect();
 
         Coordinator {
             containers,
             socket,
             flavor_requests: Arc::new(Mutex::new(VecDeque::new())),
             order_queue: Arc::new(Default::default()),
-            robot_states: Arc::new(Mutex::new(robot_states)), // Add robot_states
+            robot_states, // Add robot_states
             orders: HashMap::new()
         }
     }
 
     /// Assigns an order to a robot
 
-    async fn assign_order_to_robot(&mut self, order: Order) {
-        let mut robot_states = self.robot_states.lock().await;
-        if let Some((&robot_id, &_busy)) = robot_states.iter().find(|&(_, &busy)| busy == false) {
-            robot_states.insert(robot_id, true); // Mark robot as busy
-            //let msg = serde_json::to_vec(&Response::AssignOrder { robot_id, order }).unwrap();
+    async fn assign_order_to_robot(&mut self, order: Order, screen_addr: &SocketAddr) {
+        for (&robot_id, state) in &self.robot_states {
+            let mut state = state.lock().await;
+            if matches!(*state, RobotStateForCoordinator::Idle) {
+                *state = RobotStateForCoordinator::Busy { order_id: order.id() };
 
-            // add robot id to order state
-            if let Some(order_state) = self.orders.get_mut(&order.id()) {
-                order_state.robot_id = Some(robot_id);
+                // add robot id to order state
+                if let Some(order_state) = self.orders.get_mut(&order.id()) {
+                    order_state.robot_id = Some(robot_id);
+                }
+
+                let robot_port: u16 = from_str::<u16>(format!("809{}", robot_id).as_str()).expect("Error parsing port");
+                let addr: SocketAddr = SocketAddr::from(([0, 0, 0, 0], robot_port));
+                send_response(&self.socket, &OrderReceived { robot_id, order, screen_addr: screen_addr.clone() }, addr).await;
+                println!("[COORDINATOR] Order assigned to robot {}", robot_id);
+                return;
             }
-
-            let robot_port: u16 = from_str::<u16>(format!("809{}", robot_id).as_str()).expect("Error parsing port");
-            let addr: SocketAddr = SocketAddr::from(([0,0,0,0], robot_port));
-            send_response(&self.socket, &OrderReceived { robot_id, order }, addr).await;
-            println!("[COORDINATOR] Order assigned to robot {}", robot_id);
-        } else {
-            println!("All robots are busy");
-            // All robots are busy, handle accordingly (e.g., add to a queue)
-            self.order_queue.lock().await.push_back(order);
         }
+
+        println!("All robots are busy");
+        // All robots are busy, handle accordingly (e.g., add to a queue)
+        self.order_queue.lock().await.push_back(order);
     }
 
     /// Marks an order as completed
@@ -98,11 +107,10 @@ impl Coordinator {
     /// * `order_id` - A usize representing the ID of the order to mark as completed
     fn order_completed(&mut self, order_id: usize) {
         if let Some(order_state) = self.orders.get_mut(&order_id) {
-            if order_state.status == OrderStatus::CommitReceived {
-                order_state.status = OrderStatus::Completed;
-            }
-            else if order_state.status == OrderStatus::Pending {
-                order_state.status = OrderStatus::CompletedButNotCommited;
+            if order_state.status == CommitReceived {
+                order_state.status = Completed;
+            } else if order_state.status == Pending {
+                order_state.status = CompletedButNotCommited;
             }
         }
     }
@@ -119,26 +127,45 @@ impl Coordinator {
     async fn check_if_flavor_available(&self, robot_id: usize, flavors: &Vec<IceCreamFlavor>, addr: SocketAddr) {
         for flavor in flavors {
             let container = self.containers.get(flavor).unwrap().clone();
-            let mut access = container.lock().await;
-            let response = if !*access {
-                *access = true;
+            let mut container_state = container.lock().await;
+            let response = if container_state.in_use_by.is_none() && container_state.quantity > 0 {
+                container_state.in_use_by = Some(robot_id);
+                container_state.quantity -= 1; // Decrement quantity for simplicity
                 println!("[COORDINATOR] Robot {} is requesting access to container {:?}", robot_id, flavor);
-                //Response::AccesoConcedido(flavor.clone())
-
                 AccessAllowed { flavor: flavor.clone() }
             } else {
-                //Response::AccesoDenegado("Container already in use".into())
-                AccessDenied { reason: "Container already in use".into() }
+                AccessDenied { reason: "Container already in use or empty".into() }
             };
             send_response(&self.socket, &response, addr).await;
             if matches!(response, AccessAllowed { .. }) {
+                let robot_state = self.robot_states.get(&robot_id).unwrap().clone();
+                let mut robot_state = robot_state.lock().await;
+                match *robot_state {
+                    RobotStateForCoordinator::Busy { order_id } => {
+                        *robot_state = RobotStateForCoordinator::UsingContainer { order_id, flavor: flavor.clone() };
+                    }
+                    _ => {}
+                }
                 return;
             }
         }
-        //let response = Response::AccesoDenegado("All requested containers are in use".into());
-        let response = AccessDenied { reason: "All requested containers are in use".into() };
+        let response = AccessDenied { reason: "All requested containers are in use or empty".into() };
         self.flavor_requests.lock().await.push_back((flavors.clone(), robot_id, addr));
         send_response(&self.socket, &response, addr).await;
+    }
+
+
+    fn release_access_to_flavor(&mut self, robot_id: usize, flavor: &IceCreamFlavor) {
+        let container = self.containers.get(&flavor).unwrap().clone();
+        let this = self.clone();
+        println!("[COORDINATOR] Releasing access for container {:?} from {:?}", flavor, robot_id);
+        actix_rt::spawn(async move {
+            let mut container_state = container.lock().await;
+            container_state.in_use_by = None;
+        });
+        actix_rt::spawn(async move {
+            this.process_queue().await;
+        });
     }
 
 
@@ -168,7 +195,7 @@ impl Coordinator {
         let mut addr: SocketAddr = SocketAddr::new([0, 0, 0, 0].into(), 0);
         if let Some(order_state) = self.orders.get_mut(&order.id()) {
             if order_state.status == Pending {
-                order_state.status = OrderStatus::CommitReceived;
+                order_state.status = CommitReceived;
             } else if order_state.status == CompletedButNotCommited {
                 order_state.status = Completed;
                 send_finished = true;
@@ -194,8 +221,9 @@ impl Coordinator {
                     let msg = serde_json::to_vec(&CoordinatorMessage::OrderAborted { robot_id, order }).unwrap();
                     this.socket.clone().send_to(&msg, format!("127.0.0.1:809{}", robot_id)).await.unwrap();
                     // change my states as coordinator
-                    let mut robot_states = this.robot_states.lock().await;
-                    robot_states.insert(robot_id, false);
+                    let robot_state = this.robot_states.get(&robot_id).unwrap().clone();
+                    let mut robot_state = robot_state.lock().await;
+                    *robot_state = RobotStateForCoordinator::Idle;
                 } else {
                     // if no robot was assigned to the order
                     // remove the order from the order queue
@@ -207,6 +235,53 @@ impl Coordinator {
                 this.send_abort_message(order_state.order.id(), &addr);
             });
         }
+    }
+
+    fn reassign_order(&self, order: Order) {
+        let order_id = order.id();
+        if let Some(order_state) = self.orders.get(&order_id) {
+            if order_state.status == Pending || order_state.status == CommitReceived {
+                let mut this = self.clone();
+                let addr = order_state.screen_addr.clone();
+                actix_rt::spawn(async move {
+                    this.send_ready_message(&order, &addr).await;
+                    this.assign_order_to_robot(order, &addr).await;
+                });
+            }
+        }
+    }
+
+    fn register_order(&mut self, screen_addr: SocketAddr, order: &Order) {
+        self.orders.insert(order.id(), OrderState {
+            order: order.clone(),
+            status: Pending,
+            screen_addr,
+            robot_id: None,
+        });
+    }
+
+    async fn fix_order(&mut self, robot_id: usize) {
+        println!("COORDINATOR: Reassigning order for robot {}", robot_id);
+        let robot_state = self.robot_states.get(&robot_id).unwrap().clone();
+        let mut robot_state = robot_state.lock().await;
+        match *robot_state {
+            RobotStateForCoordinator::Busy { order_id } => {
+                let order = self.orders.get(&order_id).unwrap().order.clone();
+                self.reassign_order(order);
+            }
+            RobotStateForCoordinator::UsingContainer { order_id, flavor } => {
+                self.release_access_to_flavor(robot_id, &flavor);
+                let order = self.orders.get(&order_id).unwrap().order.clone();
+                self.reassign_order(order);
+            }
+            _ => {}
+        }
+        *robot_state = RobotStateForCoordinator::Disconnected
+    }
+
+    async fn send_ready_message(&mut self, order: &Order, addr: &SocketAddr) {
+        let message = format!("{}\nready", order.id()).into_bytes();
+        self.socket.send_to(&message, &addr).await.unwrap();
     }
 }
 
@@ -231,20 +306,13 @@ impl Handler<ScreenMessage> for Coordinator {
     fn handle(&mut self, msg: ScreenMessage, _ctx: &mut Self::Context) {
         match msg {
             ScreenMessage::OrderRequest { order, screen_addr } => {
+                self.register_order(screen_addr, &order);
                 let order = order.clone();
                 let addr = screen_addr.clone();
                 let mut this = self.clone();
-                self.orders.insert(order.id(), OrderState {
-                    order: order.clone(),
-                    status: Pending,
-                    screen_addr,
-                    robot_id: None,
-
-                });
                 actix_rt::spawn(async move {
-                    let message = format!("{}\nready", order.id()).into_bytes();
-                    this.socket.send_to(&message, &addr).await.unwrap();
-                    this.assign_order_to_robot(order).await;
+                    this.send_ready_message(&order, &addr).await;
+                    this.assign_order_to_robot(order, &addr).await;
                 });
             }
             ScreenMessage::CommitReceived { order } => {
@@ -255,7 +323,6 @@ impl Handler<ScreenMessage> for Coordinator {
             }
         }
     }
-
 }
 
 
@@ -274,16 +341,10 @@ impl Handler<RobotResponse> for Coordinator {
                 });
             }
             RobotResponse::ReleaseRequest { robot_id, flavor, addr } => {
-                let container = self.containers.get(&flavor).unwrap().clone();
+                self.release_access_to_flavor(robot_id, &flavor);
                 let socket = self.socket.clone();
-                let this = self.clone();
-                println!("[COORDINATOR] Releasing access for container {:?} from {:?}", flavor, robot_id);
                 actix_rt::spawn(async move {
-                    *container.lock().await = false;
                     send_response(&socket, &CoordinatorMessage::ACK, addr).await;
-                });
-                actix_rt::spawn(async move {
-                    this.process_queue().await;
                 });
 
             }
@@ -296,9 +357,19 @@ impl Handler<RobotResponse> for Coordinator {
                     }
                 }
                 let robot_states = self.robot_states.clone();
+                let robot_state = self.robot_states.get(&robot_id).unwrap().clone();
                 actix_rt::spawn(async move {
-                    let mut robot_states = robot_states.lock().await;
-                    robot_states.insert(robot_id, false);
+                    let mut robot_state = robot_state.lock().await;
+                    *robot_state = RobotStateForCoordinator::Idle;
+                });
+            }
+            RobotResponse::OrderInProcess { robot_id, order, addr, screen_addr } => {
+                self.register_order(screen_addr, &order);
+            }
+            RobotResponse::ReassignOrder { robot_id } => {
+                let mut this = self.clone();
+                actix_rt::spawn(async move {
+                    this.fix_order(robot_id).await;
                 });
             }
         }

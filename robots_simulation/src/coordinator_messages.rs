@@ -1,4 +1,6 @@
 //! Messages that the coordinator sends to the robots
+
+use std::net::SocketAddr;
 use actix::Message;
 use orders::order::Order;
 use orders::ice_cream_flavor::IceCreamFlavor;
@@ -16,7 +18,8 @@ pub enum CoordinatorMessage {
     },
     OrderReceived {
         robot_id: usize,
-        order: Order
+        order: Order,
+        screen_addr: SocketAddr
     },
     OrderAborted {
         robot_id: usize,

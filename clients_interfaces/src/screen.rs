@@ -6,7 +6,7 @@ use orders::order::Order;
 use crate::order_state::OrderState;
 const TIMEOUT: Duration = Duration::from_secs(60);
 const PAYMENT_GATEWAY_IP: &str = "127.0.0.1:8081";
-const ORDER_MANAGEMENT_IP: &str = "127.0.0.1:8080";
+const ORDER_MANAGEMENT_IP: &str = "127.0.0.1:8090";
 const STAKEHOLDERS: usize = 2;
 const PAYMENT_GATEWAY: usize = 1;
 const ORDER_MANAGEMENT: usize = 0;
@@ -154,29 +154,29 @@ impl Screen {
                 println!("[SCREEN {}] Timeout waiting for responses", self.id);
                 return Ok(false);
             }
-            
+
             if responses[PAYMENT_GATEWAY] ==  Some(expected){
                 if responses[ORDER_MANAGEMENT] == Some(expected) {
                     return Ok(true);
-                
+
                 }
                 else if (expected == OrderState::Abort || expected == OrderState::Finished ) && responses[ORDER_MANAGEMENT] == Some(OrderState::Ready){
                     self.socket.send_to(message, ORDER_MANAGEMENT_IP)?;
                     continue;
                 }
-                
+
             }
             else if responses[PAYMENT_GATEWAY] != Some(expected) {
                 return Ok(false);
             }
-           
-            
 
-            
-            
-        }   
+
+
+
+
+        }
     }
-    
+
     /// This method receives messages that could be from either the payment gateway or the order management.
     /// And modifies the order state in the log accordingly.
     /// Should receive a message in this format

@@ -6,20 +6,21 @@ use std::collections::{HashMap, VecDeque};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use actix::{Actor, Context, Handler};
-use robots_simulation::order_status::OrderStatus;
-use robots_simulation::order_status_screen::OrderState;
-use robots_simulation::robot_messages::RobotResponse;
-use robots_simulation::screen_message::ScreenMessage;
+use super::order_status::OrderStatus;
+use super::order_status_screen::OrderState;
+use super::robot_messages::RobotResponse;
+use super::screen_message::ScreenMessage;
 use tokio::net::UdpSocket;
 use tokio::sync::Mutex;
 use orders::ice_cream_flavor::IceCreamFlavor;
-use orders::order::{self, Order};
-use robots_simulation::coordinator_messages::CoordinatorMessage::{self, AccessAllowed, AccessDenied, OrderReceived};
+use orders::order::Order;
+use serde_json::from_str;
+use super::coordinator_messages::CoordinatorMessage::{self, AccessAllowed, AccessDenied, OrderReceived};
 
-use robots_simulation::order_status::OrderStatus::{Completed, CompletedButNotCommited, Pending};
+use super::order_status::OrderStatus::{Completed, CompletedButNotCommited, Pending};
 #[derive(Clone)]
 
-/// Coordinator 
+/// Coordinator
 /// This struct represents the Coordinator actor, which is responsible for managing the access to the ice cream containers and assigning orders to the robots.
 /// It contains the following fields:
 /// * containers: HashMap<IceCreamFlavor, Arc<Mutex<bool>>> - A map of ice cream flavors to their respective container access state.
@@ -28,7 +29,7 @@ use robots_simulation::order_status::OrderStatus::{Completed, CompletedButNotCom
 /// * order_queue: Arc<Mutex<VecDeque<Order>> - A queue of orders waiting to be assigned to a robot.
 /// * robot_states: Arc<Mutex<HashMap<usize, bool>> - A map of robot IDs to their respective state (busy or available). false means available, true means busy.
 /// * orders: HashMap<usize, OrderState> - A map of order IDs to their respective state.
-struct Coordinator {
+pub struct Coordinator {
     containers: HashMap<IceCreamFlavor, Arc<Mutex<bool>>>,
     socket: Arc<UdpSocket>,
     flavor_requests: Arc<Mutex<VecDeque<(Vec<IceCreamFlavor>, usize, SocketAddr)>>>,
@@ -37,13 +38,13 @@ struct Coordinator {
     orders: HashMap<usize, OrderState>
 }
 
-const NUMBER_ROBOTS: usize = 4;
+const NUMBER_ROBOTS: usize = 5;
 
 impl Coordinator {
     /// Creates a new Coordinator actor
     /// # Arguments
     /// * `socket` - An Arc<UdpSocket> representing the UDP socket used to communicate with the robots and the screen.
-    fn new(socket: Arc<UdpSocket>) -> Self {
+    pub fn new(socket: Arc<UdpSocket>) -> Self {
         let flavors = vec![
             IceCreamFlavor::Chocolate,
             IceCreamFlavor::Strawberry,
@@ -51,12 +52,12 @@ impl Coordinator {
             IceCreamFlavor::Mint,
             IceCreamFlavor::Lemon,
         ];
-        // Faltaría modelar el stock de los contenedores !!!
+        // Faltaría modelar el stock de los contenedores!!!
         let containers = flavors.into_iter()
             .map(|flavor| (flavor, Arc::new(Mutex::new(false))))
             .collect();
 
-        let robot_states = (0..NUMBER_ROBOTS).map(|id| (id, false)).collect(); // Initialize robot states
+        let robot_states = (1..NUMBER_ROBOTS).map(|id| (id, false)).collect(); // Initialize robot states
 
         Coordinator {
             containers,
@@ -72,7 +73,7 @@ impl Coordinator {
 
     async fn assign_order_to_robot(&mut self, order: Order) {
         let mut robot_states = self.robot_states.lock().await;
-        if let Some((&robot_id, &_available)) = robot_states.iter().find(|&(_, &available)| available == false) {
+        if let Some((&robot_id, &_busy)) = robot_states.iter().find(|&(_, &busy)| busy == false) {
             robot_states.insert(robot_id, true); // Mark robot as busy
             //let msg = serde_json::to_vec(&Response::AssignOrder { robot_id, order }).unwrap();
 
@@ -81,12 +82,12 @@ impl Coordinator {
                 order_state.robot_id = Some(robot_id);
             }
 
-
-
-            let msg = serde_json::to_vec(&OrderReceived { robot_id, order}).unwrap();
-            self.socket.send_to(&msg, format!("0.0.0.0:809{}", robot_id)).await.unwrap();
+            let robot_port: u16 = from_str::<u16>(format!("809{}", robot_id).as_str()).expect("Error parsing port");
+            let addr: SocketAddr = SocketAddr::from(([0,0,0,0], robot_port));
+            send_response(&self.socket, &OrderReceived { robot_id, order }, addr).await;
             println!("[COORDINATOR] Order assigned to robot {}", robot_id);
         } else {
+            println!("All robots are busy");
             // All robots are busy, handle accordingly (e.g., add to a queue)
             self.order_queue.lock().await.push_back(order);
         }
@@ -123,7 +124,7 @@ impl Coordinator {
                 *access = true;
                 println!("[COORDINATOR] Robot {} is requesting access to container {:?}", robot_id, flavor);
                 //Response::AccesoConcedido(flavor.clone())
-                
+
                 AccessAllowed { flavor: flavor.clone() }
             } else {
                 //Response::AccesoDenegado("Container already in use".into())
@@ -161,13 +162,61 @@ impl Coordinator {
             socket.send_to(&message, &addr).await.unwrap();
         });
     }
+
+    fn commit_received(&mut self, order: &Order) {
+        let mut send_finished = false;
+        let mut addr: SocketAddr = SocketAddr::new([0, 0, 0, 0].into(), 0);
+        if let Some(order_state) = self.orders.get_mut(&order.id()) {
+            if order_state.status == Pending {
+                order_state.status = OrderStatus::CommitReceived;
+            } else if order_state.status == CompletedButNotCommited {
+                order_state.status = Completed;
+                send_finished = true;
+                addr = order_state.screen_addr.clone();
+            }
+        }
+        // If address is not null
+        if send_finished && addr != SocketAddr::new([0, 0, 0, 0].into(), 0) {
+            self.send_finish_message(order.id(), &addr);
+        }
+    }
+
+    fn abort_order(&mut self, order: Order) {
+        println!("Order aborted: {}", order.id());
+        // remove the order from the orders
+        if let Some(order_state) = self.orders.remove(&order.id()) {
+            // stop the robot?
+            let this = self.clone();
+            actix_rt::spawn(async move {
+                // if some robot was assigned to the order
+                if let Some(robot_id) = order_state.robot_id {
+                    // send abort message to the robot
+                    let msg = serde_json::to_vec(&CoordinatorMessage::OrderAborted { robot_id, order }).unwrap();
+                    this.socket.clone().send_to(&msg, format!("127.0.0.1:809{}", robot_id)).await.unwrap();
+                    // change my states as coordinator
+                    let mut robot_states = this.robot_states.lock().await;
+                    robot_states.insert(robot_id, false);
+                } else {
+                    // if no robot was assigned to the order
+                    // remove the order from the order queue
+                    let mut order_queue = this.order_queue.lock().await;
+                    order_queue.retain(|o| o.id() != order.id());
+                }
+                // send abort message to the screen
+                let addr: SocketAddr = SocketAddr::new(order_state.screen_addr.ip(), order_state.screen_addr.port());
+                this.send_abort_message(order_state.order.id(), &addr);
+            });
+        }
+    }
 }
 
 
 /// Sends a response to a given address
 async fn send_response(socket: &Arc<UdpSocket>, response: &CoordinatorMessage, addr: SocketAddr) {
-    let response = serde_json::to_vec(response).unwrap();
-    socket.send_to(&response, addr).await.unwrap();
+    let mut message: Vec<u8> = b"order\n".to_vec();
+    let request_serialized = serde_json::to_vec(response).unwrap();
+    message.extend_from_slice(&request_serialized);
+    socket.send_to(&message, addr).await.unwrap();
 }
 
 impl Actor for Coordinator {
@@ -190,7 +239,7 @@ impl Handler<ScreenMessage> for Coordinator {
                     status: Pending,
                     screen_addr,
                     robot_id: None,
-                    
+
                 });
                 actix_rt::spawn(async move {
                     let message = format!("{}\nready", order.id()).into_bytes();
@@ -199,49 +248,10 @@ impl Handler<ScreenMessage> for Coordinator {
                 });
             }
             ScreenMessage::CommitReceived { order } => {
-                let mut send_finished = false;
-                let mut addr: SocketAddr = SocketAddr::new([0, 0, 0, 0].into(), 0);
-                if let Some(order_state) = self.orders.get_mut(&order.id()) {
-                    if order_state.status == Pending {
-                    order_state.status = OrderStatus::CommitReceived; 
-                }
-                else if order_state.status == CompletedButNotCommited {
-                    order_state.status = Completed;
-                    send_finished = true;
-                    addr = order_state.screen_addr.clone();
-                }
-            }
-            // If address is not null
-            if send_finished && addr != SocketAddr::new([0, 0, 0, 0].into(), 0) {
-                self.send_finish_message(order.id(), &addr);
-            }
+                self.commit_received(&order);
             }
             ScreenMessage::Abort { order } => {
-                println!("Order aborted: {}", order.id());
-                // remove the order from the orders
-                if let Some(order_state) =  self.orders.remove(&order.id()){
-                    // stop the robot?
-                    let this = self.clone();
-                    actix_rt::spawn(async move {
-                        // if some robot was assigned to the order
-                        if let Some(robot_id) =  order_state.robot_id {
-                            // send abort message to the robot 
-                            let msg = serde_json::to_vec(&CoordinatorMessage::OrderAborted { robot_id, order }).unwrap();
-                            this.socket.clone().send_to(&msg, format!("0.0.0.0:809{}", robot_id)).await.unwrap();
-                            // change my states as coordinator
-                            let mut robot_states = this.robot_states.lock().await;
-                            robot_states.insert(robot_id, false);
-                        }else{
-                            // if no robot was assigned to the order
-                            // remove the order from the order queue
-                            let mut order_queue = this.order_queue.lock().await;
-                            order_queue.retain(|o| o.id() != order.id());
-                        }          
-                        // send abort message to the screen
-                        let addr: SocketAddr = SocketAddr::new(order_state.screen_addr.ip(), order_state.screen_addr.port());
-                        this.send_abort_message(order_state.order.id(), &addr);
-                    });                    
-                }
+                self.abort_order(order);
             }
         }
     }
@@ -254,7 +264,7 @@ impl Handler<ScreenMessage> for Coordinator {
 impl Handler<RobotResponse> for Coordinator {
     type Result = ();
     fn handle(&mut self, msg: RobotResponse, _ctx: &mut Self::Context) -> Self::Result {
-        
+
         match msg {
             RobotResponse::AccessRequest { robot_id, flavors, addr } => {
                 let flavors = flavors.clone();
@@ -275,77 +285,22 @@ impl Handler<RobotResponse> for Coordinator {
                 actix_rt::spawn(async move {
                     this.process_queue().await;
                 });
-           
+
             }
             RobotResponse::OrderFinished { robot_id, order } => {
                 let order_id = order.id();
-                let mut this = self.clone();
-                actix_rt::spawn(async move {
-                    this.order_completed(order_id);
-                    if let Some(order_state) = this.orders.get(&order_id) {
-                        if order_state.status == Completed {
-                            this.send_finish_message(order_id, &order_state.screen_addr);
-                        }
+                self.order_completed(order_id);
+                if let Some(order_state) = self.orders.get(&order_id) {
+                    if order_state.status == Completed {
+                        self.send_finish_message(order_id, &order_state.screen_addr);
                     }
-                    let mut robot_states = this.robot_states.lock().await;
+                }
+                let robot_states = self.robot_states.clone();
+                actix_rt::spawn(async move {
+                    let mut robot_states = robot_states.lock().await;
                     robot_states.insert(robot_id, false);
                 });
-
             }
         }
-    }
-}
-
-
-
-#[actix_rt::main]
-async fn main() {
-    let socket = UdpSocket::bind("127.0.0.1:8080").await.unwrap();
-    let socket = Arc::new(socket);
-    let coordinator = Coordinator::new(socket.clone()).start();
-
-    let mut buf = [0; 1024];
-    loop {
-        let (len, addr) = socket.recv_from(&mut buf).await.unwrap();
-        let received_message = String::from_utf8_lossy(&buf[..len]);
-        let mut parts = received_message.split('\n');
-        let message_type = parts.next().unwrap();
-        println!("Received message: {}", message_type);
-
-        match message_type {
-            "prepare" => {
-                let order: Order = serde_json::from_str(&parts.next().unwrap()).unwrap();
-                println!("[COORDINATOR] Received prepare message for order: {}", order.id());
-                let order_request = ScreenMessage::OrderRequest {
-                    order,
-                    screen_addr: addr,
-                };
-                coordinator.send(order_request).await.unwrap();
-            }
-            "commit" => {
-                let order: Order = serde_json::from_str(&parts.next().unwrap()).unwrap();
-                println!("[COORDINATOR] Received commit message for order: {}", order.id());
-                let commit_received = ScreenMessage::CommitReceived {
-                    order
-                };
-                coordinator.send(commit_received).await.unwrap();
-            }
-            "abort" => {
-                let order: Order = serde_json::from_str(&parts.next().unwrap()).unwrap();
-                println!("[COORDINATOR] Received abort message for order: {}", order.id());
-
-                let abort = ScreenMessage::Abort {
-                    order,
-                };
-                coordinator.send(abort).await.unwrap();
-            }
-            "access" => {
-                let msg: RobotResponse = serde_json::from_str(&parts.next().unwrap()).unwrap();
-
-                coordinator.send(msg).await.unwrap();
-                //process_access_message(&coordinator, msg, addr).await;
-            },
-            _ => {}
-        };
     }
 }

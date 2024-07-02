@@ -1,10 +1,12 @@
 use actix::{Actor, System};
+use robots_simulation::coordinator_messages::CoordinatorMessage::{
+    self, AccessAllowed, AccessDenied, OrderReceived, ACK,
+};
+use robots_simulation::robot::Robot;
+use std::io;
 use std::net::UdpSocket;
 use std::sync::Arc;
-use std::io;
 use std::time::Duration;
-use robots_simulation::robot::Robot;
-use robots_simulation::coordinator_messages::CoordinatorMessage::{self, AccessAllowed, AccessDenied, OrderReceived, ACK};
 fn main() -> io::Result<()> {
     let robot_id: usize = std::env::args().nth(1).unwrap().parse().unwrap();
     let addr = format!("127.0.0.1:809{}", robot_id);
@@ -24,7 +26,6 @@ fn main() -> io::Result<()> {
             if let Ok((amt, _)) = socket.recv_from(&mut buf) {
                 let message: Result<CoordinatorMessage, _> = serde_json::from_slice(&buf[..amt]);
                 match message {
-            
                     Ok(OrderReceived { robot_id, order }) => {
                         robot.send(OrderReceived { robot_id, order }).await.unwrap();
                     }
@@ -35,19 +36,20 @@ fn main() -> io::Result<()> {
                         robot.send(AccessDenied { reason }).await.unwrap();
                     }
                     Ok(CoordinatorMessage::OrderAborted { robot_id, order }) => {
-                        robot.send(CoordinatorMessage::OrderAborted { robot_id, order }).await.unwrap();
+                        robot
+                            .send(CoordinatorMessage::OrderAborted { robot_id, order })
+                            .await
+                            .unwrap();
                     }
                     Ok(ACK) => {
                         println!("ACK received");
                     }
                     _ => {}
                 }
-            // tokio::time::sleep(Duration::from_millis(100)).await;
+                // tokio::time::sleep(Duration::from_millis(100)).await;
             }
-            
         }
     });
-    
 
     system.run()
 }

@@ -20,7 +20,11 @@
   - [Comunicación entre procesos](#comunicación-entre-procesos)
     - [Protocolos de comunicación](#protocolos-de-comunicación)
       - [Mensajes de Interfaces de Clientes a Gateway de Pagos y a Gestión de Pedidos](#mensajes-de-interfaces-de-clientes-a-gateway-de-pagos-y-a-gestión-de-pedidos)
+    - [Mensajes entre Pantallas](#mensajes-entre-pantallas)
       - [Mensajes de Gateway de Pagos y Gestión de Pedidos a Interfaces de Clientes](#mensajes-de-gateway-de-pagos-y-gestión-de-pedidos-a-interfaces-de-clientes)
+    - [Cómo ejecutar las aplicaciones](#cómo-ejecutar-las-aplicaciones)
+      - [Gestión de Pedidos](#gestión-de-pedidos-1)
+      - [Interfaces de Clientes](#interfaces-de-clientes-1)
       - [Mensajes entre Robots y Coordinador](#mensajes-entre-robots-y-coordinador)
   - [Modelo de dominio](#modelo-de-dominio)
   - [Supuestos](#supuestos)
@@ -109,12 +113,27 @@ pub struct Order {
   items: Vec<Item>  
 }
 ```
-Se mantiene esta misma estructura a nivel global entre las tres aplicaciones.
+
+El mensaje puede ser de tres tipos:
+- Prepare: Se envía al principio a Gestión de Pedidos y a Gateway de Pagos.
+- Commit: Cuando se le entrega al cliente el helado se le envía a ambas aplicaciones.
+- Abort: Se envía en caso de que falle alguna de las partes de la transacción.
+Por lo tanto, se mantiene esta estructura a nivel global entre las tres aplicaciones
+
+### Mensajes entre Pantallas
+Las pantallas enviarán mensajes de tipo Ping a la pantalla que tengan a cargo para verificar si sigue vigente:
+
+              {mensaje}\n{payload}
+
+Donde el mensaje puede ser de tipo *screen* y el payload es un enum llamado *ScreenMessage* que puede ser de tipo:
+- Ping: lo envía una pantalla para vertificar si las pantalla sigue activa.
+- Pong: Es la respuesta de la pantalla con el id de la última orden procesada.
+- Finished: Indica que la pantalla finalizo el procesamiento de todas las ordenes.
 
 #### Mensajes de Gateway de Pagos y Gestión de Pedidos a Interfaces de Clientes
 Tanto el Gateway de Pagos como Gestión de Pedidos utilizarán el siguiente formato para el envío de mensajes:
 
-   				{order_id}\n{message_type}
+   				{message_type}\n{order_id}
 El mensaje podrá ser de tipo:
 - `ready`: Como respuesta a `prepare` indica que se pudo realizar correctamente la captura del pago o el pedido dependiendo el caso.
 - `abort`: También como respuesta a `prepare` indica que falló la captura del pago o no se pudo preparar el pedido.

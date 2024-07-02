@@ -1,9 +1,7 @@
-
 use std::process::{exit, Child, Command};
 
 use clients_interfaces::generate_orders;
 const NUMBER_SCREENS: u8 = 3;
-
 
 fn main() {
     // create files of simulated orders
@@ -11,19 +9,16 @@ fn main() {
         eprintln!("Error: {}", e);
         exit(1)
     });
-  
+
     let screens = launch_screens();
 
     screens.into_iter().for_each(|mut screen| {
-    let _ = screen.wait().unwrap_or_else(|e| {
-        eprintln!("Error: {}", e);
-        exit(1)
-    });});
-
+        let _ = screen.wait().unwrap_or_else(|e| {
+            eprintln!("Error: {}", e);
+            exit(1)
+        });
+    });
 }
-
-
-
 
 fn launch_screens() -> Vec<Child> {
     let mut screens: Vec<Child> = Vec::new();
@@ -35,11 +30,13 @@ fn launch_screens() -> Vec<Child> {
             .arg("--bin")
             .arg("screen")
             .arg(id.to_string())
-            .spawn().unwrap_or_else(|e| {
-            eprintln!("Error: {}", e);
-            exit(1)});
+            .spawn()
+            .unwrap_or_else(|e| {
+                eprintln!("Error: {}", e);
+                exit(1)
+            });
         screens.push(child);
-    }       
+    }
 
     screens
 }

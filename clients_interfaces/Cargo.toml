@@ -4,9 +4,6 @@ version = "0.1.0"
 edition = "2021"
 
 
-[[bin]]
-name = "screen_process"
-path = "src/screen_process.rs"
 
 
 

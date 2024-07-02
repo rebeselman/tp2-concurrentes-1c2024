@@ -11,11 +11,15 @@ pub enum ContainerType {
     QuarterKilo,
 }
 
-
-
 impl ContainerType {
     /// Returns all the possible values of ContainerType
-    pub fn values()-> Vec<ContainerType> {
-        return vec![ContainerType::Cup, ContainerType::Cone, ContainerType::OneKilo, ContainerType::HalfKilo, ContainerType::QuarterKilo]
+    pub fn values() -> Vec<ContainerType> {
+        vec![
+            ContainerType::Cup,
+            ContainerType::Cone,
+            ContainerType::OneKilo,
+            ContainerType::HalfKilo,
+            ContainerType::QuarterKilo,
+        ]
     }
 }

@@ -8,7 +8,7 @@ use crate::{container_type::ContainerType, ice_cream_flavor::IceCreamFlavor};
 pub struct Item {
     container: ContainerType,
     units: u32,
-    flavors: Vec<IceCreamFlavor>
+    flavors: Vec<IceCreamFlavor>,
 }
 
 impl Item {
@@ -19,39 +19,37 @@ impl Item {
     /// * `flavors` - A Vec<IceCreamFlavor> representing the flavors of the ice cream
     /// # Returns
     /// * An Item
-    pub fn new(container: ContainerType, units: u32, flavors: Vec<IceCreamFlavor>)-> Item {
-        return Item {
+    pub fn new(container: ContainerType, units: u32, flavors: Vec<IceCreamFlavor>) -> Item {
+        Item {
             container,
             units,
-            flavors
+            flavors,
         }
     }
 
     /// To obtain the container of this item
-    pub fn container(&self)-> &ContainerType {
-        return &self.container
+    pub fn container(&self) -> &ContainerType {
+        &self.container
     }
 
     /// To obtain the units of this item
-    pub fn units(&self)-> u32 {
-        return self.units
+    pub fn units(&self) -> u32 {
+        self.units
     }
 
     /// To obtain the flavors of this item
-    pub fn flavors(&self)-> &Vec<IceCreamFlavor> {
-        return &self.flavors
+    pub fn flavors(&self) -> &Vec<IceCreamFlavor> {
+        &self.flavors
     }
 
-
     /// Time to prepare one item should be based on container type
-    pub fn time_to_prepare(&self)-> u32 {
+    pub fn time_to_prepare(&self) -> u32 {
         match self.container {
             ContainerType::Cup => 2,
             ContainerType::Cone => 1,
             ContainerType::OneKilo => 5,
             ContainerType::HalfKilo => 4,
-            ContainerType::QuarterKilo => 3
-
+            ContainerType::QuarterKilo => 3,
         }
     }
 }

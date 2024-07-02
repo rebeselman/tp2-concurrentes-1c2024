@@ -15,7 +15,7 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
-    - name: Change directory
-      run: cd payment_gateway
     - name: Run tests
-      run: cargo test --verbose
+      run: |
+        cd payment_gateway
+        cargo test --verbose

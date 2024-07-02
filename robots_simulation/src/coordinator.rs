@@ -19,9 +19,6 @@ use super::screen_message::ScreenMessage;
 use super::coordinator_messages::CoordinatorMessage::{self, AccessAllowed, AccessDenied, OrderReceived};
 use super::order_status::OrderStatus::{CommitReceived, Completed, CompletedButNotCommited, Pending};
 
-type FlavorRequest = (Vec<IceCreamFlavor>, usize, SocketAddr);
-type FlavorRequestQueue = VecDeque<FlavorRequest>;
-type SharedFlavorRequestQueue = Arc<Mutex<FlavorRequestQueue>>;
 
 #[derive(Clone)]
 /// Coordinator
@@ -36,7 +33,6 @@ type SharedFlavorRequestQueue = Arc<Mutex<FlavorRequestQueue>>;
 pub struct Coordinator {
     containers: HashMap<IceCreamFlavor, Arc<Mutex<Container>>>,
     socket: Arc<UdpSocket>,
-    flavor_requests: SharedFlavorRequestQueue,
     order_queue: Arc<Mutex<VecDeque<Order>>>,
     robot_states: HashMap<usize, Arc<Mutex<RobotStateForCoordinator>>>,
     orders: HashMap<usize, Arc<Mutex<OrderState>>>,
@@ -69,7 +65,6 @@ impl Coordinator {
         Coordinator {
             containers,
             socket,
-            flavor_requests: Arc::new(Mutex::new(VecDeque::new())),
             order_queue: Arc::new(Default::default()),
             robot_states,
             orders: HashMap::new(),

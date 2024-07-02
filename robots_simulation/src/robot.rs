@@ -373,7 +373,7 @@ impl Robot {
         match state_clone {
             RobotState::WaitingForAccess(ref waiting_order, ref flavors) => {
                 // Use cloned data
-                self.request_access(waiting_order, &flavors).expect("Error requesting access");
+                self.request_access(waiting_order, flavors).expect("Error requesting access");
             }
             RobotState::ProcessingOrder(ref processing_order) => {
                 // Use cloned data

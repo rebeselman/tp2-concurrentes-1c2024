@@ -163,8 +163,6 @@ impl Robot {
         for (peer_addr, status) in &self.peers {
             if let Some(last_pong) = status.last_pong {
                 let duration_since_last_pong = now.duration_since(last_pong);
-                /*println!("[ROBOT {}] Peer {} last pong received {} seconds ago. Ping attempts: {}",
-                         self.robot_id, peer_addr, duration_since_last_pong.as_secs(), status.ping_attempts);*/
                 if duration_since_last_pong > Duration::from_secs(10) || status.ping_attempts >= 10 {
                     println!("[ROBOT {}] Peer {} has failed. Reassigning order", self.robot_id, peer_addr);
                     peers_to_remove.push(peer_addr.clone());
@@ -180,7 +178,8 @@ impl Robot {
             }
         }
         for peer_addr in peers_to_remove {
-            println!("Removing peer {}", peer_addr);
+            println!("[{}] [ROBOT {}] Removing peer {}", Local::now().format("%Y-%m-%d %H:%M:%S"),
+                     self.robot_id, peer_addr);
             self.peers.remove(&peer_addr);
         }
     }
@@ -191,7 +190,6 @@ impl Robot {
             if let Some(last_pong) = status.last_pong {
                 let now = Instant::now();
                 let duration_since_last_pong = now.duration_since(last_pong);
-                println!("Duration since last pong: {:?}", duration_since_last_pong);
                 if duration_since_last_pong > Duration::from_secs(5) || status.ping_attempts >= 20 {
                     println!("[{}] [ROBOT {}] Coordinator {} has failed. Initiating election",
                              Local::now().format("%Y-%m-%d %H:%M:%S"), self.robot_id, self.coordinator_addr);
@@ -253,16 +251,13 @@ impl Robot {
     }
 
     fn process_allowed_access(&mut self,  flavor: IceCreamFlavor) -> io::Result<()>{
-        println!("Processing allowed access in async");
         let (order, flavors) = match &self.state {
             RobotState::WaitingForAccess(order, flavors) => (order.clone(), flavors.clone()),
             _ => {
-                println!("NOT WAITING FOR ACCESS");
                 return Ok(())
             }
         };
         self.state = RobotState::UsingContainer(flavor);
-        println!("Flavors requested: {:?}", flavors);
 
         if flavors.contains(&flavor) {
             println!("[{}] [Robot {}] Access allowed for flavor {:?}", Local::now().format("%Y-%m-%d %H:%M:%S"), self.robot_id, &flavor);
@@ -274,7 +269,6 @@ impl Robot {
         let flavor_needed: Vec<IceCreamFlavor> = flavors.into_iter().filter(|other| *other != flavor).collect();
 
         if !flavor_needed.is_empty() {
-            println!("[AFTER ALLOWED ACCESS] Flavors needed: {:?}", flavor_needed);
             self.request_access(&order, &flavor_needed)?;
         } else {
             println!("[{}] [Robot {}] Order completed", Local::now().format("%Y-%m-%d %H:%M:%S"), self.robot_id);
@@ -479,13 +473,10 @@ impl Robot {
                     message.extend_from_slice(&pong_serialized);
                     cloned_socket.send_to(&message, addr).await.unwrap();
                 });
-                // println!("[ROBOT {}] Sent pong to Robot {}", self.robot_id, addr);
             }
             PingMessage::Pong => {
-                // println!("[ROBOT {}] Received pong from {}", self.robot_id, addr);
                 // Update the status of the peer to 0 attempts
                 if let Some(status) = self.peers.get_mut(&addr.to_string()) {
-                    // println!("[ROBOT {}] Peer {} responded", self.robot_id, addr);
                     status.last_pong = Some(Instant::now());
                     status.ping_attempts = 0;
                 }
@@ -495,8 +486,6 @@ impl Robot {
 
 
     fn handle_as_robot(&mut self, message: CoordinatorMessage) {
-        println!("Handling as robot");
-        println!("Message: {:?}", message);
         match message {
             CoordinatorMessage::AccessAllowed { flavor } => {
                 self.process_allowed_access(flavor).unwrap();
@@ -511,7 +500,7 @@ impl Robot {
                 self.abort_order(robot_id, order).unwrap();
             }
             CoordinatorMessage::ACK => {
-                // println!("[Robot {}] ACK received", self.robot_id);
+                println!("[Robot {}] ACK received", self.robot_id);
             }
         }
     }
@@ -580,7 +569,6 @@ impl StreamHandler<io::Result<(usize, Vec<u8>, SocketAddr)>> for Robot {
             let received_message = String::from_utf8_lossy(&buf[..len]);
             let mut parts = received_message.split('\n');
             let message_type = parts.next().unwrap();
-            // println!("[ROBOT {}] Received message: {}", self.robot_id, message_type);
             if message_type == "ping" {
                 let message: PingMessage = serde_json::from_str(parts.next().unwrap()).unwrap();
                 self.handle_ping_message(message, addr);
@@ -588,7 +576,6 @@ impl StreamHandler<io::Result<(usize, Vec<u8>, SocketAddr)>> for Robot {
                 let message: ElectionMessage = serde_json::from_str(parts.next().unwrap()).unwrap();
                 self.handle_election_message(message);
             } else if self.is_coordinator {
-                // println!("Handling as coordinator");
                 self.handle_as_coordinator(message_type, parts, addr);
             } else {
                 let message: CoordinatorMessage = serde_json::from_str(parts.next().unwrap()).unwrap();

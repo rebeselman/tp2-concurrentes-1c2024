@@ -5,4 +5,5 @@ pub enum RobotState {
     Idle,
     WaitingForAccess(Order, Vec<IceCreamFlavor>),
     ProcessingOrder(Order),
+    UsingContainer(IceCreamFlavor),
 }

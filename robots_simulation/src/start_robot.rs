@@ -27,7 +27,7 @@ fn main() -> io::Result<()> {
 
         if is_coordinator {
             println!("Robot {} is the coordinator", robot_id);
-            let coordinator = Coordinator::new(socket.clone());
+            let coordinator = Coordinator::new(socket.clone(), robot_id);
             robot.coordinator = Some(coordinator.start());
         }
         robot.start();

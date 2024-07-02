@@ -6,7 +6,7 @@ use tokio::{
 
 /// A struct representing a logger that asynchronously writes log entries to a file.
 pub struct Logger {
-    file: File,
+    pub(crate) file: File,
 }
 
 impl Logger {
@@ -76,6 +76,9 @@ mod tests {
         let message = Abort::new(order);
         logger.log(&message).await.unwrap();
 
+        // Ensure the file is flushed properly
+        logger.file.flush().await.unwrap();
+
         let content = fs::read_to_string(file_path).await.unwrap();
         let log_entry =
             r#"abort {"order_id":9,"client_id":25,"credit_card":"0000111122223333","items":[]}"#;
@@ -96,6 +99,9 @@ mod tests {
         let message = Commit::new(order);
         logger.log(&message).await.unwrap();
 
+        // Ensure the file is flushed properly
+        logger.file.flush().await.unwrap();
+
         let content = fs::read_to_string(file_path).await.unwrap();
         let log_entry =
             r#"commit {"order_id":9,"client_id":25,"credit_card":"0000111122223333","items":[]}"#;
@@ -115,6 +121,9 @@ mod tests {
         let order = Order::new(9, 25, "0000111122223333".to_string(), Vec::new());
         let message = Prepare::new(order);
         logger.log(&message).await.unwrap();
+
+        // Ensure the file is flushed properly
+        logger.file.flush().await.unwrap();
 
         let content = fs::read_to_string(file_path).await.unwrap();
         let log_entry =

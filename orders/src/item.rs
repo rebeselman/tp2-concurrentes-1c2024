@@ -46,11 +46,11 @@ impl Item {
     /// Time to prepare one item should be based on container type
     pub fn time_to_prepare(&self)-> u32 {
         match self.container {
-            ContainerType::Cup => 2,
-            ContainerType::Cone => 1,
-            ContainerType::OneKilo => 5,
-            ContainerType::HalfKilo => 4,
-            ContainerType::QuarterKilo => 3
+            ContainerType::Cup => 200,
+            ContainerType::Cone => 100,
+            ContainerType::OneKilo => 1000,
+            ContainerType::HalfKilo => 500,
+            ContainerType::QuarterKilo => 300
 
         }
     }

@@ -1,12 +1,13 @@
 //! Represents a screen of an ice cream local
 
 use std::{collections::HashMap, error::Error, fs::File, io::{BufRead, BufReader}, net::UdpSocket, sync::{Arc, Condvar, Mutex}, thread, time::{Duration, Instant}};
+use std::net::SocketAddr;
 use std::sync::MutexGuard;
 use orders::order::Order;
 use crate::order_state::OrderState;
 const TIMEOUT: Duration = Duration::from_secs(60);
 const PAYMENT_GATEWAY_IP: &str = "127.0.0.1:8081";
-const ORDER_MANAGEMENT_IP: &str = "127.0.0.1:8080";
+const ORDER_MANAGEMENT_IP: &str = "127.0.0.1:8090";
 const STAKEHOLDERS: usize = 2;
 const PAYMENT_GATEWAY: usize = 1;
 const ORDER_MANAGEMENT: usize = 0;
@@ -15,7 +16,8 @@ pub struct Screen {
     id: usize,
     log: HashMap<usize, OrderState>,
     socket: UdpSocket,
-    responses: Arc<(Mutex<Vec<Option<OrderState>>>, Condvar)>
+    responses: Arc<(Mutex<Vec<Option<OrderState>>>, Condvar)>,
+    order_management_ip: SocketAddr,
 }
 
 // cosas a tener en cuenta:
@@ -38,9 +40,10 @@ impl Screen {
             id,
             log: HashMap::new(),
             socket: UdpSocket::bind(id_to_addr(id))?,
-            responses: Arc::new((Mutex::new(vec![None; STAKEHOLDERS]), Condvar::new()))
+            responses: Arc::new((Mutex::new(vec![None; STAKEHOLDERS]), Condvar::new())),
+            order_management_ip: ORDER_MANAGEMENT_IP.to_owned().parse().unwrap(),
         };
-        let clone = ret.clone()?;
+        let mut clone = ret.clone()?;
         thread::spawn(move || {
             if let Err(e) = clone.receiver() {
                 println!("[SCREEN {}] Error receiving messages: {:?}", id, e);
@@ -55,6 +58,7 @@ impl Screen {
             log: HashMap::new(),
             socket: self.socket.try_clone()?,
             responses: self.responses.clone(),
+            order_management_ip: self.order_management_ip.clone(),
         };
         Ok(ret)
     }
@@ -77,8 +81,9 @@ impl Screen {
         let reader = BufReader::new(file);
         for line in reader.lines() {
             let order: Order = serde_json::from_str(&line?)?;
-            if !self.protocol(order)? {
-                println!("[SCREEN] abort");
+            match self.protocol(order) {
+                Ok(_) => (),
+                Err(e) => println!("[SCREEN {}] Error processing order: {:?}", self.id, e),
             }
         }
         Ok(())
@@ -103,7 +108,14 @@ impl Screen {
     /// "commit" message to the payment gateway and the order management and waits for a "finished" message as well.
     /// At this point, they can't abort the order.
     fn commit(&mut self, order: &Order) -> Result<bool, Box<dyn Error>> {
-        println!("[SCREEN {}] commiting order: {:?}", self.id, order.id());
+        if let Some(state) = self.log.get(&order.id()) {
+            if *state == OrderState::Finished {
+                println!("[SCREEN {}] Order {} already committed", self.id, order.id());
+                return Ok(true);
+            }
+        }
+
+        println!("[SCREEN {}] Committing order: {:?}", self.id, order.id());
         self.log.insert(order.id(), OrderState::Finished);
         let order_serialized = serde_json::to_vec(order)?;
         let mut message: Vec<u8> = b"commit\n".to_vec();
@@ -142,7 +154,7 @@ impl Screen {
         }
         println!("[SCREEN {} ]Sending message", self.id);
         self.socket.send_to(message, PAYMENT_GATEWAY_IP)?;
-        self.socket.send_to(message, ORDER_MANAGEMENT_IP)?;
+        self.socket.send_to(message, self.order_management_ip)?;
         let (lock, cvar) = &*self.responses;
         let mut responses = lock.lock().map_err(|e| e.to_string())?;
         loop {
@@ -154,34 +166,34 @@ impl Screen {
                 println!("[SCREEN {}] Timeout waiting for responses", self.id);
                 return Ok(false);
             }
-            
+
             if responses[PAYMENT_GATEWAY] ==  Some(expected){
                 if responses[ORDER_MANAGEMENT] == Some(expected) {
                     return Ok(true);
-                
+
                 }
                 else if (expected == OrderState::Abort || expected == OrderState::Finished ) && responses[ORDER_MANAGEMENT] == Some(OrderState::Ready){
-                    self.socket.send_to(message, ORDER_MANAGEMENT_IP)?;
+                    self.socket.send_to(message, self.order_management_ip)?;
                     continue;
                 }
-                
+
             }
             else if responses[PAYMENT_GATEWAY] != Some(expected) {
                 return Ok(false);
             }
-           
-            
 
-            
-            
-        }   
+
+
+
+
+        }
     }
-    
+
     /// This method receives messages that could be from either the payment gateway or the order management.
     /// And modifies the order state in the log accordingly.
     /// Should receive a message in this format
     /// <order_id>\n<response>
-    fn receiver(&self) -> Result<(), Box<dyn Error>> {
+    fn receiver(&mut self) -> Result<(), Box<dyn Error>> {
         loop {
             let mut buf = [0; 1024];
             let (size, from) = self.socket.recv_from(&mut buf)?;
@@ -198,6 +210,9 @@ impl Screen {
                         responses[PAYMENT_GATEWAY] = Some(OrderState::Ready);
                         println!("[SCREEN {}] received READY from payment gateway for order {}", self.id, order_id);
                     } else {
+                        if from != self.order_management_ip {
+                           self.order_management_ip = from;
+                        }
                         responses[ORDER_MANAGEMENT] = Some(OrderState::Ready);
                         println!("[SCREEN {}] received READY from order management for order {}", self.id, order_id);
                         //a double ready from order management means that the coordinator has changed

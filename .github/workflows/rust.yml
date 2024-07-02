@@ -1,0 +1,21 @@
+name: Rust tests
+
+on:
+  push:
+    branches: [ "**" ]
+  pull_request:
+    branches: [ "**" ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+    - name: Change directory
+      run: cd payment_gateway
+    - name: Run tests
+      run: cargo test --verbose

@@ -15,4 +15,5 @@ use serde::{Deserialize, Serialize};
 pub enum ScreenMessage {
     Ping { screen_id: usize },
     Pong { screen_id: usize, last_order: Option<usize>},
+    Finished { screen_id: usize}
 }

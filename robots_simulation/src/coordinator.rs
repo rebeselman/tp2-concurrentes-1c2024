@@ -13,7 +13,7 @@ use robots_simulation::screen_message::ScreenMessage;
 use tokio::net::UdpSocket;
 use tokio::sync::Mutex;
 use orders::ice_cream_flavor::IceCreamFlavor;
-use orders::order::{self, Order};
+use orders::order::Order;
 use robots_simulation::coordinator_messages::CoordinatorMessage::{self, AccessAllowed, AccessDenied, OrderReceived};
 
 use robots_simulation::order_status::OrderStatus::{Completed, CompletedButNotCommited, Pending};
@@ -146,7 +146,7 @@ impl Coordinator {
         let socket = self.socket.clone();
         let addr = addr.clone();
         actix_rt::spawn(async move {
-            let message = format!("{}\nfinished", order_id).into_bytes();
+            let message = format!("finished\n{}", order_id).into_bytes();
             socket.send_to(&message, &addr).await.unwrap();
         });
     }
@@ -157,7 +157,7 @@ impl Coordinator {
         let socket = self.socket.clone();
         let addr = addr.clone();
         actix_rt::spawn(async move {
-            let message = format!("{}\nabort", order_id).into_bytes();
+            let message = format!("abort\n{}", order_id).into_bytes();
             socket.send_to(&message, &addr).await.unwrap();
         });
     }
@@ -193,7 +193,7 @@ impl Handler<ScreenMessage> for Coordinator {
                     
                 });
                 actix_rt::spawn(async move {
-                    let message = format!("{}\nready", order.id()).into_bytes();
+                    let message = format!("ready\n{}", order.id()).into_bytes();
                     this.socket.send_to(&message, &addr).await.unwrap();
                     this.assign_order_to_robot(order).await;
                 });

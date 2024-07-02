@@ -109,7 +109,7 @@ impl Robot {
             println!("[Robot {}] Access allowed for flavor {:?}", self.robot_id, &flavor);
         }
     
-        thread::sleep(Duration::from_nanos(order.time_to_prepare() as u64 ));
+        thread::sleep(Duration::from_millis(order.time_to_prepare() as u64 ));
         self.release_access(flavor.clone())?;
     
         let flavor_needed: Vec<IceCreamFlavor> = flavors.into_iter().filter(|other| *other != flavor).collect();

@@ -13,8 +13,8 @@ const ORDER_MANAGEMENT_IP: &str = "127.0.0.1:8080";
 const STAKEHOLDERS: usize = 2;
 const PAYMENT_GATEWAY: usize = 1;
 const ORDER_MANAGEMENT: usize = 0;
-const TIMEOUT_PONG: Duration = Duration::from_secs(120);
-const PING_INTERVAL: Duration = Duration::from_secs(120);
+const TIMEOUT_PONG: Duration = Duration::from_secs(200);
+const PING_INTERVAL: Duration = Duration::from_secs(40);
 const SCREENS: usize = 3;
 
 /// A screen is a process that receives orders from clients and processes them.
@@ -22,7 +22,8 @@ const SCREENS: usize = 3;
 /// The screen follows a two-phase commit protocol to process the orders.
 /// The screen is also an actor that can communicate with other screens to check if they are still alive
 /// and to exchange information about the last order processed. This would be used to reassign orders from a screen that has crashed to another screen.
-
+/// Contains the following elements:
+/// 
 
 pub struct Screen {
     id: usize,
@@ -32,6 +33,7 @@ pub struct Screen {
     screen_in_charge_state: Arc<(Mutex<Option<ScreenState>>,Condvar)>,
     last_order_completed: Option<usize>,
     screen_in_charge: usize,
+    ping_screen: usize,
 
 }
 
@@ -68,12 +70,19 @@ impl Screen {
     /// The screen will bind to the address and will spawn a new thread to receive messages from the payment gateway and the order management.
     pub fn new(id: usize) -> Result<Screen, Box<dyn Error>> {
         let screen_charge: usize;
-
+        let screen_that_pings: usize;
         if id == SCREENS -1 {
             screen_charge = 0;
 
         }else{
             screen_charge = id + 1;
+        }
+
+        if id == 0 {
+            screen_that_pings = SCREENS -1;
+            
+        }else {
+            screen_that_pings = id - 1;
         }
 
         let ret = Screen {
@@ -83,14 +92,10 @@ impl Screen {
             responses: Arc::new((Mutex::new(vec![None; STAKEHOLDERS]), Condvar::new())),
             screen_in_charge_state: Arc::new((Mutex::new(None), Condvar::new())),
             last_order_completed: None,
-            screen_in_charge: screen_charge
+            screen_in_charge: screen_charge,
+            ping_screen: screen_that_pings
+            
         };
-
-        // let should_continue = Arc::new(AtomicBool::new(true));
-        // let should_continue_clone = Arc::clone(&should_continue);
-    
-
-
 
         let mut clone = ret.clone()?;
         thread::spawn(move || {
@@ -98,28 +103,34 @@ impl Screen {
                 Ok(_) => {},
                 Err(e) => println!("[SCREEN {}] Error processing orders: {:?}", id, e)
             }
-            //should_continue_clone.store(false, std::sync::atomic::Ordering::SeqCst);
-
-            // when the screen finishes processing the orders, it should check if there are any orders that were being processed by the screen that crashed
-            // and verify if it should take responsibily of the orders of the screen that is down
             match clone.process_orders_from_down_screen() {
                 Ok(_) => println!("Screen [{}] finished its work", id),
                 Err(e) => println!("[SCREEN {}] Error processing orders from down screen: {:?}", id, e)
             }
-            
-
         });
 
         // thread for pinging assigned screen
+        
         let clone_ping = ret.clone()?;
         thread::spawn(move || {
             loop {
+                // break if the screen is finished
+                let (lock, _) = &*clone_ping.screen_in_charge_state;
+                let responses = lock.lock().map_err(|e| e.to_string()).unwrap();
+                if let Some(ScreenState::Finished) = *responses {
+                    drop(responses);
+                    break;
+                }
+                drop(responses);
+                
                 match clone_ping.broadcast_pings() {
                     Ok(_) => {},
                     Err(e) => println!("[SCREEN {}] Error broadcasting pings: {:?}", id, e)
                 }
+              
                 thread::sleep(PING_INTERVAL);
             }
+            
         });
         Ok(ret)
     }
@@ -132,7 +143,8 @@ impl Screen {
             responses: self.responses.clone(),
             screen_in_charge_state: self.screen_in_charge_state.clone(),
             last_order_completed: self.last_order_completed,
-            screen_in_charge: self.screen_in_charge
+            screen_in_charge: self.screen_in_charge,
+            ping_screen: self.ping_screen
         };
         Ok(ret)
     }
@@ -204,8 +216,8 @@ impl Screen {
         self.broadcast_and_wait(&message, OrderState::Abort, order)
     }
 
-    /// This method sends a message PONG to another screen.
-    fn send_pong_to_screen(&self, screen_id: usize, message: ScreenMessage) -> Result<(), Box<dyn Error>>{
+    /// This method sends a message to another screen.
+    fn send_message_to_screen(&self, screen_id: usize, message: ScreenMessage) -> Result<(), Box<dyn Error>>{
         let addr = id_to_addr(screen_id);
         let message_serialized = serde_json::to_vec(&message)?;
         let mut message: Vec<u8> = b"screen\n".to_vec();
@@ -213,6 +225,7 @@ impl Screen {
         self.socket.send_to(&message, addr)?;
         Ok(())
     }
+
 
 
     /// This method sends a message to the payment gateway and the order management and waits for a response.
@@ -272,46 +285,37 @@ impl Screen {
     /// A screen should do this by an interval of time and also wait for the response of the other screens.
     fn broadcast_pings(&self) -> Result<(), Box<dyn Error>> {
         {
+            // if all are none, it is because the screens are just starting to operate -> we do nothing
+            // if all are active, we change them to down with the last completed request
+            // this is because we assume they are down and we check if they are still alive
+            // if any does not respond, it remains down and we take action accordingly
             let mut screen_responses = self.screen_in_charge_state.0.lock().map_err(|e| e.to_string())?;
-            // si todos son none es porque recién empiezan a andar las pantallas -> no hacemos nada
-            // si todos son actives los cambiamos a down con el último pedido completado
-            // esto es porque asumimos que estan caidas y preguntamos si siguen vivas
-            // si alguna no response, queda en down y accionamos en consecuencia 
-            
-                if let Some(screen_state) = *screen_responses {
-                    match screen_state {
-                        ScreenState::Active(last_order) => {
+            if let Some(screen_state) = *screen_responses {
+                match screen_state {
+                    ScreenState::Active(last_order) => {
                             *screen_responses = Some(ScreenState::Down(last_order));
-                        },
-                        ScreenState::Down(_) => {},
-                    }
+                    },
+                    ScreenState::Down(_) => {},
+                    ScreenState::Finished => {return Ok(());}
                 }
-            
-
-        
-
+            }
         }
-
-
         let message = ScreenMessage::Ping {
             screen_id: self.id
         };
         let message_serialized = serde_json::to_vec(&message)?;
         let mut message: Vec<u8> = b"screen\n".to_vec();
         message.extend_from_slice(&message_serialized);
-        
         self.socket.send_to(&message, id_to_addr(self.screen_in_charge))?;
-        
-        
         let (lock, cvar) = &*self.screen_in_charge_state;
         let mut responses = lock.lock().map_err(|e| e.to_string())?;
-
         // wait in the condvar until all the screens are active
         loop {
                 let result: (MutexGuard<Option<ScreenState>>, std::sync::WaitTimeoutResult) = cvar.wait_timeout_while(responses, TIMEOUT_PONG, |responses| {
                     match responses {
                         Some(ScreenState::Down(_)) => true,
                         Some(ScreenState::Active(_)) => false,
+                        Some(ScreenState::Finished) => false,
                         _ => true
                     }
                 }).map_err(|e| e.to_string())?;
@@ -323,10 +327,14 @@ impl Screen {
                 if let Some(ScreenState::Active(_)) = *responses {
                     return Ok(());
                 }
+                if let Some(ScreenState::Finished) = *responses {
+                    return Ok(());
+                }
             }
         }
 
         fn process_pong(&mut self, screen_id: usize, last_order: Option<usize>) -> Result<(), Box<dyn Error>>{
+            println!("[SCREEN{}] processing PONG from {}", self.id, screen_id);
             let (lock, cvar) = &*self.screen_in_charge_state;
             let mut responses = lock.lock().map_err(|e| e.to_string())?;
             *responses = Some(ScreenState::Active(last_order));
@@ -340,6 +348,7 @@ impl Screen {
             let responses = lock.lock().map_err(|e| e.to_string())?;
             // check if my assigned screen is down
             if let Some(ScreenState::Down(last_order)) = *responses {
+                println!("Screen {} is down", self.screen_in_charge);
                 drop(responses);
                 if let Some(order_id) = last_order {
                     // I should take the orders that were being processed by that screen
@@ -349,27 +358,31 @@ impl Screen {
                     let reader = BufReader::new(file);
                     for line in reader.lines() {
                         let order: Order = serde_json::from_str(&line?)?;
+                        let id_order = order.id();
                         if order.id() > order_id {
                             
                             if !self.protocol(order)? {
-                                println!("[SCREEN] abort");
+                                println!("[SCREEN {}] abort", id_order);
                             }
                         }
                     }
                 }
-                // if it is down, then I should take the orders that were being processed by that screen
-                // and process them
-                
             }
+            // send finished message
+            self.send_message_to_screen(self.ping_screen, ScreenMessage::Finished { screen_id: self.id })?;
             Ok(())
         }
-    
+        
+
+
+        fn process_finished_message(&self) -> Result<(), Box<dyn Error>> {
+            let (lock, _) = &*self.screen_in_charge_state;
+            let mut responses = lock.lock().map_err(|e| e.to_string())?;
+            *responses = Some(ScreenState::Finished);
+            Ok(())
+
+        }
     }
-
-
-
-   
-
 
 
 /// Implement the Actor trait for Screen
@@ -379,7 +392,6 @@ impl Actor for Screen {
 
 
 /// Implement the Handler trait for Screen
-
 impl Handler<ScreenMessage> for Screen {
     type Result = ();
 
@@ -392,11 +404,15 @@ impl Handler<ScreenMessage> for Screen {
                     last_order: self.last_order_completed
                 };
                 
-                self.send_pong_to_screen(screen_id, response).unwrap_or_else(|e|eprintln!("Error sending pong: {:?}", e));
+                self.send_message_to_screen(screen_id, response).unwrap_or_else(|e|eprintln!("Error sending pong: {:?}", e));
             }
             ScreenMessage::Pong { screen_id, last_order } => {
                 println!("SCREEN {} received PONG from SCREEN {}", self.id, screen_id);
                 self.process_pong(screen_id, last_order).unwrap_or_else(|e|eprintln!("Error processing pong: {:?}", e));
+            },
+            ScreenMessage::Finished {screen_id} => {
+                println!("SCREEN {} received FINISHED message from SCREEN {}", self.id, screen_id);
+                self.process_finished_message().unwrap_or_else(|e|eprintln!("Error processing finished message from screen: {:?}", e));
             }
 
 
@@ -406,10 +422,10 @@ impl Handler<ScreenMessage> for Screen {
 
 
 
-/// FORMAT OF THE MESSAGES
+
+
+/// Format of expected messages:
 /// {message_type}\n{message}
-
-
 #[actix_rt::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     let args: Vec<String> = env::args().collect();

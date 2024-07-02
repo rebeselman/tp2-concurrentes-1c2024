@@ -110,6 +110,15 @@ El mensaje puede ser de tres tipos:
 - Abort: Se envía en caso de que falle alguna de las partes de la transacción.
 Por lo tanto, se mantiene esta estructura a nivel global entre las tres aplicaciones
 
+### Mensaje entre Pantallas
+Las pantallas enviarán mensajes tipo Ping a la pantalla que tengan a cargo para verificar si sigue vigente:
+
+              {mensaje}\n{payload}
+
+Donde el mensaje puede ser de tipo *screen* y el payload es un enum llamado *ScreenMessage* que puede ser de tipo:
+- Ping: lo envía una pantalla para vertificar si las pantalla sigue activa.
+- Pong: Es la respuesta de la pantalla con el id de la última orden procesada.
+
 #### Mensajes de Gestión de Pedidos y Gateway de Pagos a Interfaces de Clientes
 Tanto el Gateway de Pagos como Gestión de Pedidos utilizarán el siguiente formato para el envío de mensajes:
 			

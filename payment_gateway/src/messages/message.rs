@@ -4,7 +4,7 @@ use super::prepare::Prepare;
 use orders::order::Order;
 
 /// Trait representing a generic message.
-pub trait Message {
+pub trait Message: Send + Sync {
     /// Returns a reference to the associated order.
     fn get_order(&self) -> &Order;
 

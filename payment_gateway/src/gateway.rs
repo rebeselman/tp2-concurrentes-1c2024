@@ -12,8 +12,8 @@ const LOG_FILE_PATH: &str = "log.txt";
 /// # Errors
 ///
 /// Returns an `io::Error` if there's an issue with the socket operations or logging.
-async fn handle_messages(mut logger: Logger) -> io::Result<()> {
-    let socket = UdpSocket::bind(PAYMENT_GATEWAY_IP).await?;
+async fn handle_messages(addr: &str, mut logger: Logger) -> io::Result<()> {
+    let socket = UdpSocket::bind(addr).await?;
     println!("[Payment Gateway] Listening on: {}", socket.local_addr()?);
 
     loop {
@@ -66,10 +66,126 @@ pub fn run() -> Result<(), String> {
 
     runtime.block_on(async {
         let logger = Logger::new(LOG_FILE_PATH).await?;
-        if let Err(err) = handle_messages(logger).await {
+        if let Err(err) = handle_messages(PAYMENT_GATEWAY_IP, logger).await {
             eprintln!("[Payment Gateway] Error handling messages: {}", err);
         }
 
         Ok(())
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs::read_to_string;
+    use tokio::{
+        task,
+        time::{sleep, Duration},
+    };
+
+    #[tokio::test]
+    async fn test_handle_abort_message() {
+        let file_path = "test_handle_abort.txt";
+        let screen_addr = "127.0.0.1:12340";
+
+        if std::path::Path::new(file_path).exists() {
+            std::fs::remove_file(file_path).unwrap();
+        }
+        let logger = Logger::new(file_path).await.unwrap();
+
+        let handler = task::spawn(async move {
+            handle_messages(PAYMENT_GATEWAY_IP, logger).await.unwrap();
+        });
+
+        // Allow the handler to start
+        sleep(Duration::from_millis(100)).await;
+
+        let screen_socket = UdpSocket::bind(screen_addr).await.unwrap();
+        screen_socket.send_to(b"abort\n{\"order_id\":9,\"client_id\":25,\"credit_card\":\"0000111122223333\",\"items\":[]}", PAYMENT_GATEWAY_IP).await.unwrap();
+
+        let mut buf = [0; 1024];
+        let (len, _src) = screen_socket.recv_from(&mut buf).await.unwrap();
+        let response = String::from_utf8_lossy(&buf[..len]).to_string();
+        assert_eq!(response, "9\nabort");
+
+        // Give some time for logging
+        sleep(Duration::from_millis(100)).await;
+        let log_contents = read_to_string(file_path).unwrap();
+        assert_eq!(log_contents, "abort {\"order_id\":9,\"client_id\":25,\"credit_card\":\"0000111122223333\",\"items\":[]}\n");
+
+        handler.abort();
+        std::fs::remove_file(file_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_handle_commit_message() {
+        let file_path = "test_handle_commit.txt";
+        let screen_addr = "127.0.0.1:12341";
+
+        if std::path::Path::new(file_path).exists() {
+            std::fs::remove_file(file_path).unwrap();
+        }
+        let logger = Logger::new(file_path).await.unwrap();
+
+        let handler = task::spawn(async move {
+            handle_messages(&PAYMENT_GATEWAY_IP.replace(":8081", ":8082"), logger)
+                .await
+                .unwrap();
+        });
+
+        // Allow the handler to start
+        sleep(Duration::from_millis(100)).await;
+
+        let screen_socket = UdpSocket::bind(screen_addr).await.unwrap();
+        screen_socket.send_to(b"commit\n{\"order_id\":9,\"client_id\":25,\"credit_card\":\"0000111122223333\",\"items\":[]}", PAYMENT_GATEWAY_IP.replace(":8081", ":8082")).await.unwrap();
+
+        let mut buf = [0; 1024];
+        let (len, _src) = screen_socket.recv_from(&mut buf).await.unwrap();
+        let response = String::from_utf8_lossy(&buf[..len]).to_string();
+        assert_eq!(response, "9\nfinished");
+
+        // Give some time for logging
+        sleep(Duration::from_millis(100)).await;
+        let log_contents = read_to_string(file_path).unwrap();
+        assert_eq!(log_contents, "commit {\"order_id\":9,\"client_id\":25,\"credit_card\":\"0000111122223333\",\"items\":[]}\n");
+
+        handler.abort();
+        std::fs::remove_file(file_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_handle_prepare_message() {
+        let file_path = "test_handle_prepare.txt";
+        let screen_addr = "127.0.0.1:12342";
+
+        if std::path::Path::new(file_path).exists() {
+            std::fs::remove_file(file_path).unwrap();
+        }
+        let logger = Logger::new(file_path).await.unwrap();
+
+        let handler = task::spawn(async move {
+            handle_messages(&PAYMENT_GATEWAY_IP.replace(":8081", ":8083"), logger)
+                .await
+                .unwrap();
+        });
+
+        // Allow the handler to start
+        sleep(Duration::from_millis(100)).await;
+
+        let screen_socket = UdpSocket::bind(screen_addr).await.unwrap();
+        screen_socket.send_to(b"prepare\n{\"order_id\":9,\"client_id\":25,\"credit_card\":\"0000111122223333\",\"items\":[]}", PAYMENT_GATEWAY_IP.replace(":8081", ":8083")).await.unwrap();
+
+        let mut buf = [0; 1024];
+        let (len, _src) = screen_socket.recv_from(&mut buf).await.unwrap();
+        let response = String::from_utf8_lossy(&buf[..len]).to_string();
+        assert_eq!(response, "9\nready");
+
+        // Give some time for logging
+        sleep(Duration::from_millis(100)).await;
+        let log_contents = read_to_string(file_path).unwrap();
+        assert_eq!(log_contents, "prepare {\"order_id\":9,\"client_id\":25,\"credit_card\":\"0000111122223333\",\"items\":[]}\n");
+
+        handler.abort();
+        std::fs::remove_file(file_path).unwrap();
+    }
 }

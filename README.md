@@ -118,6 +118,7 @@ Las pantallas enviarán mensajes tipo Ping a la pantalla que tengan a cargo para
 Donde el mensaje puede ser de tipo *screen* y el payload es un enum llamado *ScreenMessage* que puede ser de tipo:
 - Ping: lo envía una pantalla para vertificar si las pantalla sigue activa.
 - Pong: Es la respuesta de la pantalla con el id de la última orden procesada.
+- Finished: Indica que la pantalla finalizo el procesamiento de todas las ordenes.
 
 #### Mensajes de Gestión de Pedidos y Gateway de Pagos a Interfaces de Clientes
 Tanto el Gateway de Pagos como Gestión de Pedidos utilizarán el siguiente formato para el envío de mensajes:

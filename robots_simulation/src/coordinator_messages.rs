@@ -1,11 +1,9 @@
 //! Messages that the coordinator sends to the robots
-
 use std::net::SocketAddr;
 use actix::Message;
-use orders::order::Order;
 use orders::ice_cream_flavor::IceCreamFlavor;
+use orders::order::Order;
 use serde::{Deserialize, Serialize};
-
 
 #[derive(Message, Serialize, Deserialize, Debug)]
 #[rtype(result = "()")]

@@ -12,13 +12,11 @@ pub enum ScreenMessage {
     OrderRequest {
         order: Order,
         screen_addr: SocketAddr,
-        
     },
     CommitReceived {
         order: Order,
     },
-    Abort{
+    Abort {
         order: Order,
     },
-
 }

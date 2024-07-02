@@ -1,13 +1,7 @@
 //! Coordinator module
 //! This module contains the implementation of the Coordinator actor, which is responsible for managing the access to the ice cream containers and assigning orders to the robots.
 
-
-use std::collections::{HashMap, VecDeque};
-use std::net::SocketAddr;
-use std::sync::Arc;
 use actix::{Actor, Context, Handler};
-use tokio::net::UdpSocket;
-use tokio::sync::Mutex;
 use orders::ice_cream_flavor::IceCreamFlavor;
 use orders::order::Order;
 use serde_json::from_str;
@@ -18,9 +12,14 @@ use super::robot_messages::RobotResponse;
 use super::screen_message::ScreenMessage;
 use super::coordinator_messages::CoordinatorMessage::{self, AccessAllowed, AccessDenied, OrderReceived};
 use super::order_status::OrderStatus::{CommitReceived, Completed, CompletedButNotCommited, Pending};
-
+use std::collections::{HashMap, VecDeque};
+use std::net::SocketAddr;
+use std::sync::Arc;
+use tokio::net::UdpSocket;
+use tokio::sync::Mutex;
 
 #[derive(Clone)]
+
 /// Coordinator
 /// This struct represents the Coordinator actor, which is responsible for managing the access to the ice cream containers and assigning orders to the robots.
 /// It contains the following fields:
@@ -54,7 +53,8 @@ impl Coordinator {
             IceCreamFlavor::Lemon,
         ];
         // Faltaría modelar el stock de los contenedores!!!
-        let containers = flavors.into_iter()
+        let containers = flavors
+            .into_iter()
             .map(|flavor| (flavor, Arc::new(Mutex::new(Container::new(INITIAL_QUANTITY)))))
             .collect();
 
@@ -87,7 +87,9 @@ impl Coordinator {
 
                 let robot_port: u16 = from_str::<u16>(format!("809{}", robot_id).as_str()).expect("Error parsing port");
                 let addr: SocketAddr = SocketAddr::from(([0, 0, 0, 0], robot_port));
-                send_response(&self.socket, &OrderReceived { robot_id, order, screen_addr: *screen_addr }, addr).await;
+                send_response(&self.socket, &OrderReceived { robot_id, order, screen_addr: *screen_addr }, addr)
+                .await
+                ;
                 println!("[COORDINATOR] Order assigned to robot {}", robot_id);
                 return;
             }
@@ -125,11 +127,15 @@ impl Coordinator {
     }
 
     /// Checks if a flavor is available and sends a response to the robot
-    async fn check_if_flavor_available(&self, robot_id: usize, flavors: &Vec<IceCreamFlavor>, addr: SocketAddr) -> bool {
+    async fn check_if_flavor_available(
+        &self,
+        robot_id: usize,
+        flavors: &Vec<IceCreamFlavor>,
+        addr: SocketAddr,
+    ) -> bool {
         if self.check_robot_has_container(robot_id, addr).await {
             return true;
         }
-
         for flavor in flavors {
             let container = self.containers.get(flavor).unwrap().clone();
             let mut container_state = container.lock().await;
@@ -177,18 +183,17 @@ impl Coordinator {
         let socket = self.socket.clone();
         let addr = *addr;
         actix_rt::spawn(async move {
-            let message = format!("{}\nfinished", order_id).into_bytes();
+            let message = format!("finished\n{}", order_id).into_bytes();
             socket.send_to(&message, &addr).await.unwrap();
         });
     }
-
 
     /// Send abort message to the screen
     fn send_abort_message(&self, order_id: usize, addr: &SocketAddr) {
         let socket = self.socket.clone();
         let addr = *addr;
         actix_rt::spawn(async move {
-            let message = format!("{}\nabort", order_id).into_bytes();
+            let message = format!("abort\n{}", order_id).into_bytes();
             socket.send_to(&message, &addr).await.unwrap();
         });
     }
@@ -304,12 +309,12 @@ impl Coordinator {
     }
 
     async fn send_ready_message(&mut self, order: &Order, addr: &SocketAddr) {
-        let message = format!("{}\nready", order.id()).into_bytes();
+        let message = format!("ready\n{}", order.id()).into_bytes();
         self.socket.send_to(&message, &addr).await.unwrap();
     }
 
     async fn send_keepalive_message(&mut self, order: &Order, addr: &SocketAddr) {
-        let message = format!("{}\nkeepalive", order.id()).into_bytes();
+        let message = format!("keepalive\n{}", order.id()).into_bytes();
         self.socket.send_to(&message, &addr).await.unwrap();
     }
 }
@@ -366,17 +371,26 @@ impl Handler<RobotResponse> for Coordinator {
     fn handle(&mut self, msg: RobotResponse, _ctx: &mut Self::Context) -> Self::Result {
 
         match msg {
-            RobotResponse::AccessRequest { robot_id, flavors, addr } => {
+            RobotResponse::AccessRequest {
+                robot_id,
+                flavors,
+                addr,
+            } => {
                 let flavors = flavors.clone();
                 let this = self.clone();
                 actix_rt::spawn(async move {
-                    let access_given = this.check_if_flavor_available(robot_id, &flavors, addr).await;
+                    let access_given = this.check_if_flavor_available(robot_id, &flavors, addr)
+                        .await;
                     if !access_given {
                         this.send_denied_access_to_robot(addr).await;
                     }
                 });
             }
-            RobotResponse::ReleaseRequest { robot_id, flavor, addr } => {
+            RobotResponse::ReleaseRequest {
+                robot_id,
+                flavor,
+                addr,
+            } => {
                 self.release_access_to_flavor(robot_id, &flavor);
                 let socket = self.socket.clone();
                 actix_rt::spawn(async move {

@@ -34,7 +34,7 @@ async fn handle_messages(mut logger: Logger) -> io::Result<()> {
                     message.get_order().id(),
                     String::from_utf8_lossy(&response)
                         .split('\n')
-                        .last()
+                        .next()
                         .unwrap_or("<Error getting message type>"),
                     addr
                 );

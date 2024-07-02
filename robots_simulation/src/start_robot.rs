@@ -1,9 +1,12 @@
 use actix::{Actor, System};
+use robots_simulation::coordinator_messages::CoordinatorMessage::{
+    self, AccessAllowed, AccessDenied, OrderReceived, ACK,
+};
+use robots_simulation::robot::Robot;
+use std::io;
 use tokio::net::UdpSocket;
 use std::sync::Arc;
-use std::io;
 use robots_simulation::coordinator::Coordinator;
-use robots_simulation::robot::Robot;
 
 fn build() -> io::Result<(usize, usize, String)> {
     let robot_id: usize = std::env::args().nth(1).unwrap().parse().unwrap();

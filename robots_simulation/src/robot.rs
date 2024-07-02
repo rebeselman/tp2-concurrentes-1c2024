@@ -1,26 +1,30 @@
 //! Represents a robot that can process orders
 //! Each robot should be run in a separate process
+use orders::{ice_cream_flavor::IceCreamFlavor, order::Order};
 use std::collections::{HashMap, HashSet};
 use std::{io, thread};
 use std::net::SocketAddr;
+use tokio::net::UdpSocket;
+use tokio::time::Instant;
+use chrono::Local;
 use std::sync::Arc;
 use std::time::Duration;
 
 use actix::prelude::*;
-use orders::{ice_cream_flavor::IceCreamFlavor, order::Order};
-use tokio::net::UdpSocket;
-use tokio::time::Instant;
-use chrono::Local;
-use crate::{coordinator_messages::CoordinatorMessage, robot_messages::RobotResponse, robot_state::RobotState};
-use crate::election_message::ElectionMessage;
-use crate::election_state::ElectionState;
-use crate::ping_message::{PeerStatus, PingMessage};
-use crate::screen_message::ScreenMessage;
-use crate::udp_message_stream::UdpMessageStream;
 
-use super::coordinator::Coordinator;
+use crate::{
+    coordinator_messages::CoordinatorMessage, robot_messages::RobotResponse,
+    robot_state::RobotState,
+    election_message::ElectionMessage,
+    election_state::ElectionState,
+    ping_message::{PeerStatus, PingMessage},
+    screen_message::ScreenMessage,
+    udp_message_stream::UdpMessageStream,
+    coordinator::Coordinator
+};
 
 const NUMBER_ROBOTS: usize = 5;
+
 
 
 #[derive(Clone)]
@@ -66,7 +70,6 @@ impl Robot {
         }
     }
 
-
     /// Makes a request to the coordinator
     fn make_request(&self, request: &RobotResponse) -> io::Result<()> {
         let mut message: Vec<u8> = b"access\n".to_vec();
@@ -82,15 +85,17 @@ impl Robot {
 
     /// Processes an order
     fn process_order(&mut self, order: &Order) -> io::Result<()> {
-        let flavors: HashSet<IceCreamFlavor> = order.items().iter().flat_map(|item| item.flavors().clone()).collect();
+        let flavors: HashSet<IceCreamFlavor> = order
+            .items()
+            .iter()
+            .flat_map(|item| item.flavors().clone())
+            .collect();
         let flavors_needed: Vec<IceCreamFlavor> = flavors.into_iter().collect();
         println!("[{}] [Robot {}] Processing order: {}", Local::now().format("%Y-%m-%d %H:%M:%S"), self.robot_id, order.id());
         self.request_access(order, &flavors_needed)?;
 
         Ok(())
     }
-
-
 
     /// Requests access to the coordinator for a set of flavors
     /// Change the state of the robot to WaitingForAccess for that order and flavors
@@ -99,7 +104,10 @@ impl Robot {
     /// * `flavors` - A Vec<IceCreamFlavor> representing the flavors that the robot needs access to
 
     fn request_access(&mut self, order: &Order, flavors: &Vec<IceCreamFlavor>) -> io::Result<()> {
-        println!("[Robot {}] Requesting access for flavors: {:?}", self.robot_id, flavors);
+        println!(
+            "[Robot {}] Requesting access for flavors: {:?}",
+            self.robot_id, flavors
+        );
         self.state = RobotState::WaitingForAccess(order.clone(), flavors.clone());
 
         let request = RobotResponse::AccessRequest {
@@ -250,29 +258,29 @@ impl Robot {
         }
     }
 
-    fn process_allowed_access(&mut self,  flavor: IceCreamFlavor) -> io::Result<()>{
+    fn process_allowed_access(&mut self, flavor: IceCreamFlavor) -> io::Result<()> {
         let (order, flavors) = match &self.state {
             RobotState::WaitingForAccess(order, flavors) => (order.clone(), flavors.clone()),
-            _ => {
-                return Ok(())
-            }
+            _ => return Ok(()),
         };
         self.state = RobotState::UsingContainer(flavor);
-
         if flavors.contains(&flavor) {
-            println!("[{}] [Robot {}] Access allowed for flavor {:?}", Local::now().format("%Y-%m-%d %H:%M:%S"), self.robot_id, &flavor);
+            println!(
+                "[{}] [Robot {}] Access allowed for flavor {:?}", Local::now().format("%Y-%m-%d %H:%M:%S"), self.robot_id, &flavor
+            );
         }
 
-        thread::sleep(Duration::from_millis(order.time_to_prepare() as u64 ));
+        thread::sleep(Duration::from_millis(order.time_to_prepare() as u64));
         self.release_access(flavor)?;
 
-        let flavor_needed: Vec<IceCreamFlavor> = flavors.into_iter().filter(|other| *other != flavor).collect();
-
+        let flavor_needed: Vec<IceCreamFlavor> = flavors
+            .into_iter()
+            .filter(|other| *other != flavor)
+            .collect();
         if !flavor_needed.is_empty() {
             self.request_access(&order, &flavor_needed)?;
         } else {
             println!("[{}] [Robot {}] Order completed", Local::now().format("%Y-%m-%d %H:%M:%S"), self.robot_id);
-
             let request = RobotResponse::OrderFinished {
                 robot_id: self.robot_id,
                 order: order.clone(),
@@ -281,10 +289,9 @@ impl Robot {
             self.state = RobotState::Idle;
         }
         Ok(())
-
     }
 
-    fn process_denied_access(&mut self, reason: String) -> io::Result<()>{
+    fn process_denied_access(&mut self, reason: String) -> io::Result<()> {
         println!("[Robot {}] Access denied. Reason: {}", self.robot_id, reason);
         let (order_clone, flavors_clone) = if let RobotState::WaitingForAccess(ref order, ref flavors) = self.state {
             (Some(order.clone()), Some(flavors.clone()))
@@ -295,7 +302,8 @@ impl Robot {
         // Now, use the cloned order and flavors for the request_access call if they exist.
         if let (Some(order), Some(flavors)) = (order_clone, flavors_clone) {
             thread::sleep(Duration::from_secs(2));
-            self.request_access(&order, &flavors).expect("Error requesting access");
+            self.request_access(&order, &flavors).expect("Error requesting access"
+            );
         }
         Ok(())
     }
@@ -343,9 +351,8 @@ impl Robot {
         Ok(())
     }
 
-    fn abort_order(&mut self, _robot_id: usize, order: Order) -> io::Result<()>{
+    fn abort_order(&mut self, _robot_id: usize, order: Order) -> io::Result<()> {
         match self.state {
-
             RobotState::WaitingForAccess(ref _waiting_order, _) => {
                 self.state = RobotState::Idle;
                 println!("[ROBOT {}] Order aborted: {:?}", self.robot_id, order.id());
@@ -488,16 +495,36 @@ impl Robot {
     fn handle_as_robot(&mut self, message: CoordinatorMessage) {
         match message {
             CoordinatorMessage::AccessAllowed { flavor } => {
-                self.process_allowed_access(flavor).unwrap();
+                self.process_allowed_access(flavor).unwrap_or_else(|e| {
+                    eprintln!(
+                        "[Robot {}] Error processing allowed access: {}",
+                        self.robot_id, e
+                    )
+                })
             }
             CoordinatorMessage::AccessDenied { reason } => {
-                self.process_denied_access(reason).unwrap();
+                self.process_denied_access(reason).unwrap_or_else(|e| {
+                    eprintln!(
+                        "[Robot {}] Error processing denied access: {}",
+                        self.robot_id, e
+                    )
+                })
             }
-            CoordinatorMessage::OrderReceived { robot_id: _, order, screen_addr } => {
-                self.process_received_order(order, &screen_addr).unwrap();
-            }
+            CoordinatorMessage::OrderReceived { robot_id: _, order, screen_addr } => self
+                .process_received_order(order, &screen_addr)
+                .unwrap_or_else(|e| {
+                    eprintln!(
+                        "[Robot {}] Error processing received order: {}",
+                        self.robot_id, e
+                    )
+                }),
             CoordinatorMessage::OrderAborted { robot_id, order } => {
-                self.abort_order(robot_id, order).unwrap();
+                self.abort_order(robot_id, order).unwrap_or_else(|e| {
+                    eprintln!(
+                        "[Robot {}] Error processing aborted order: {}",
+                        self.robot_id, e
+                    )
+                })
             }
             CoordinatorMessage::ACK => {
                 println!("[Robot {}] ACK received", self.robot_id);

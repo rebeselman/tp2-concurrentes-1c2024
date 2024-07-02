@@ -29,3 +29,21 @@ impl Message for Abort {
         "abort".to_string()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_abort_msg_created_correctly() {
+        let order = Order::new(9, 25, "0000111122223333".to_string(), Vec::new());
+        let abort_msg = Abort::new(order);
+        assert_eq!(abort_msg.get_order().id(), 9);
+        assert_eq!(abort_msg.get_order().client_id(), 25);
+        assert_eq!(
+            abort_msg.get_order().credit_card(),
+            "0000111122223333".to_string()
+        );
+        assert!(abort_msg.get_order().items().is_empty())
+    }
+}

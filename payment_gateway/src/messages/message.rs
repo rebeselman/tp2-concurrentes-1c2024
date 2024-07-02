@@ -94,7 +94,8 @@ mod tests {
     fn test_process_prepare_message() {
         let order = Order::new(9, 25, "0000111122223333".to_string(), Vec::new());
         let message = Prepare::new(order);
-        assert!(message.process() == b"9\nready" || message.process() == b"9\nabort")
+        let result = message.process();
+        assert!(result == b"9\nready" || result == b"9\nabort");
     }
 
     #[test]

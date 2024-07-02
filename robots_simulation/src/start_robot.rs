@@ -1,7 +1,4 @@
 use actix::{Actor, System};
-use robots_simulation::coordinator_messages::CoordinatorMessage::{
-    self, AccessAllowed, AccessDenied, OrderReceived, ACK,
-};
 use robots_simulation::robot::Robot;
 use std::io;
 use tokio::net::UdpSocket;

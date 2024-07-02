@@ -465,7 +465,7 @@ impl Handler<ScreenMessage> for Screen {
 async fn main() -> Result<(), Box<dyn Error>> {
     let args: Vec<String> = env::args().collect();
     let id: usize = args[1].parse()?;
-    let screen = Screen::new(id)?;
+    let mut screen = Screen::new(id)?;
     let screen_cloned = screen.clone()?;
     let screen_actor = screen_cloned.start();
     loop {
@@ -486,8 +486,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
                         screen.id, order_id
                     );
                 } else {
-                    if from != self.order_management_ip {
-                        self.order_management_ip = from;
+                    if from != screen.order_management_ip {
+                        screen.order_management_ip = from;
                     }
                     responses[ORDER_MANAGEMENT] = Some(OrderState::Ready);
                     println!(
@@ -508,8 +508,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
                         screen.id, order_id
                     );
                 } else {
-                    if from != self.order_management_ip {
-                        self.order_management_ip = from;
+                    if from != screen.order_management_ip {
+                        screen.order_management_ip = from;
                     }
                     responses[ORDER_MANAGEMENT] = Some(OrderState::Abort);
                     println!(
@@ -528,8 +528,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
                         screen.id, order_id
                     );
                 } else {
-                    if from != self.order_management_ip {
-                        self.order_management_ip = from;
+                    if from != screen.order_management_ip {
+                        screen.order_management_ip = from;
                     }
                     responses[ORDER_MANAGEMENT] = Some(OrderState::Finished);
                     println!(
@@ -548,8 +548,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
                         screen.id, order_id
                     );
                 } else {
-                    if from != self.order_management_ip {
-                        self.order_management_ip = from;
+                    if from != screen.order_management_ip {
+                        screen.order_management_ip = from;
                     }
                     responses[ORDER_MANAGEMENT] = Some(OrderState::Wait(Instant::now()));
                     println!(

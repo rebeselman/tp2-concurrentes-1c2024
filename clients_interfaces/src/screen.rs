@@ -49,31 +49,15 @@ pub struct Screen {
     is_finished: bool,
 }
 
-// cosas a tener en cuenta:
-// fase 1: screen es como el coordinador, escribe prepare en su log y envia el mensaje
-// prepare a gateway de pagos y espera a que este le conteste con ready. Si recibe abort aborta el pedido.
-// Si recibe ready envia mensaje prepare a gestion de pedidos y espera a que este le conteste con ready. Si recibe abort aborta el pedido.
-// Gateway de pagos y gestions de pedidos que reciben este mensaje, escriben ready en el log y envian ready al coordinador, o abort.
-// Fase 2: El coordinador hace los cambios y envia el mensaje de commit al resto de los procesos
-// Los procesos que reciben el mensaje, escriben commit en el log y envían finished al coordinador.
-// ABORT: en la fase 1, tanto gestion de pedidos como gateway de pagos pueden enviar abort. El coordinador debe broadcasteralo.
-// Se asume que la pantalla atiende un pedido a la vez.
 
-// otras cosas a tener en cuenta:
-// Resiliencia en las pantallas
-// Para verificar el estado de cada pantalla, se envían mensajes tipo ping entre sí cada cierto tiempo para verificar que
-// siguen procesando pedidos. En el mensaje ping se envía información del último pedido completado.
-// De esta forma, una pantalla puede tomar los pedidos de esa pantalla caída desde esa orden. Se utilizaría el modelo de actores para la comunicación entre las pantallas.
-// Cuando se detecta que una pantalla está caída, los pedidos que estaba manejando se reasignan a otra pantalla.
-// Ya se tendría establecido qué pantalla se hace cargo de qué pantalla en caso de que se caiga alguna.
-// Por ejemplo: tenemos las pantallas 0, 1, 2, 3. Si se cae la 0, se hace cargo la 1, si se cae la 1, se
-// hace cargo la 2, si se cae la 3, se hace cargo la 0.
-
+/// This function converts an id to an address. The address is the ip address of the screen and the port is 1234 + id.
 fn id_to_addr(id: usize) -> String {
     "127.0.0.1:1234".to_owned() + &*id.to_string()
 }
 
 impl Screen {
+
+    /// Returns the id of the screen.
     pub fn id(&self) -> usize {
         self.id
     }
@@ -142,6 +126,7 @@ impl Screen {
         Ok(ret)
     }
 
+    /// Clones the screen.
     pub fn clone_screen(&self) -> Result<Screen, Box<dyn Error>> {
         let ret = Screen {
             id: self.id,
@@ -320,14 +305,15 @@ impl Screen {
                 println!("[SCREEN {}] Timeout waiting for responses", self.id);
                 return Ok(false);
             }
-            println!(
-                "[SCREEN {}] Received responses: {:?}",
-                self.id, responses);
+            println!("[SCREEN {}] Received responses: {:?}", self.id, responses);
 
             if responses[PAYMENT_GATEWAY] == Some(expected) {
                 if responses[ORDER_MANAGEMENT] == Some(expected) {
                     if expected == OrderState::Finished {
-                        let mut last_order = self.last_order_completed.lock().map_err(|e| e.to_string())?;
+                        let mut last_order = self
+                            .last_order_completed
+                            .lock()
+                            .map_err(|e| e.to_string())?;
                         *last_order = Some(order.id());
                     }
                     return Ok(true);
@@ -405,10 +391,13 @@ impl Screen {
         }
     }
 
+    /// This method processes a PONG message from another screen. It updates the state of the screen that sent the PONG message.
+    /// And notifies the waiting thread that the screen state has changed.
     fn process_pong(
         &mut self,
         screen_id: usize,
-        last_order: Option<usize>) -> Result<(), Box<dyn Error>> {
+        last_order: Option<usize>,
+    ) -> Result<(), Box<dyn Error>> {
         println!("[SCREEN {}] processing PONG from {}", self.id, screen_id);
         let (lock, cvar) = &*self.screen_in_charge_state;
         let mut responses = lock.lock().map_err(|e| e.to_string())?;
@@ -418,41 +407,53 @@ impl Screen {
         Ok(())
     }
 
+    /// This method processes a PING message from another screen. 
+    /// It returns a PONG message to send back to the screen that sent the PING message.
     fn process_ping(&mut self, screen_id: usize) -> Result<ScreenMessage, Box<dyn Error>> {
         println!("[SCREEN {}] processing PING from {}", self.id, screen_id);
-        let last_order = self.last_order_completed.lock().map_err(|e| e.to_string())?;
+        let last_order = self
+            .last_order_completed
+            .lock()
+            .map_err(|e| e.to_string())?;
         Ok(ScreenMessage::Pong {
             screen_id: self.id,
             last_order: *last_order,
         })
     }
-
-
+    /// This method processes the orders that were being processed by a screen that has crashed.
+    /// It reads the orders from a file and processes them.
     fn process_orders_from_down_screen(&mut self) -> Result<(), Box<dyn Error>> {
         let (lock, _) = &*self.screen_in_charge_state;
         let responses = lock.lock().map_err(|e| e.to_string())?;
         // check if my assigned screen is down
         if let Some(ScreenState::Down(last_order)) = *responses {
-            println!("[SCREEN {}] is down: {}", self.id ,self.screen_in_charge);
+            println!("[SCREEN {}] is down: {}", self.id, self.screen_in_charge);
             drop(responses);
             if let Some(order_id) = last_order {
                 // I should take the orders that were being processed by that screen
                 // and process them
-                println!("[SCREEN {}] Processing orders from down screen {}", self.id, self.screen_in_charge);
+                println!(
+                    "[SCREEN {}] Processing orders from down screen {}",
+                    self.id, self.screen_in_charge
+                );
                 let file_path = format!("orders_screen_{}.jsonl", self.screen_in_charge);
                 let file = File::open(file_path)?;
                 let reader = BufReader::new(file);
                 for line in reader.lines() {
-                    
                     let order: Order = serde_json::from_str(&line?)?;
                     let id_order = order.id();
-                    if order.id() > order_id{
+                    if order.id() > order_id {
                         if self.protocol(order)? {
-                            println!("[SCREEN {}] Order  from down screen {} processed successfully", self.id, id_order);
+                            println!(
+                                "[SCREEN {}] Order  from down screen {} processed successfully",
+                                self.id, id_order
+                            );
                         } else {
-                            println!("[SCREEN {}] Order from down screen {} could not be processed", self.id, id_order);
+                            println!(
+                                "[SCREEN {}] Order from down screen {} could not be processed",
+                                self.id, id_order
+                            );
                         }
-
                     }
                 }
             }
@@ -461,13 +462,15 @@ impl Screen {
         Ok(())
     }
 
+    /// This method processes a finished message from another screen. It updates the state of the screen that sent the finished message.
     fn process_finished_message(&self) -> Result<(), Box<dyn Error>> {
         let (lock, _) = &*self.screen_in_charge_state;
         let mut responses = lock.lock().map_err(|e| e.to_string())?;
         *responses = Some(ScreenState::Finished);
         Ok(())
     }
-
+    
+    /// Returns true if the screen has finished processing the orders.
     pub fn is_finished(&self) -> bool {
         self.is_finished
     }
@@ -491,7 +494,8 @@ impl Screen {
         };
         println!(
             "[SCREEN {}] received {} from {} for order {}",
-            self.id, message, from, order_id);
+            self.id, message, from, order_id
+        );
         let mut responses = self.responses.0.lock().map_err(|e| e.to_string())?;
 
         if from == PAYMENT_GATEWAY_IP {
@@ -576,12 +580,12 @@ impl Handler<ScreenMessage> for Screen {
                     "[SCREEN {}] received PING MESSAGE FROM {}",
                     self.id, screen_id
                 );
-                
-                let response = self.process_ping(screen_id).unwrap_or_else(|_| ScreenMessage::Pong {
+
+                let response = self.process_ping(screen_id).unwrap_or(ScreenMessage::Pong {
                     screen_id: self.id,
                     last_order: None,
                 });
-                
+
                 self.send_message_to_screen(screen_id, response)
                     .unwrap_or_else(|e| eprintln!("Error sending pong: {:?}", e));
             }

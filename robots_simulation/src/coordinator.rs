@@ -504,7 +504,7 @@ mod tests {
     #[actix_rt::test]
     async fn test_register_order() {
         let mut coordinator = setup_coordinator().await;
-        let screen_addr = "127.0.0.1:8080".parse().unwrap();
+        let screen_addr = "127.0.0.1:0".parse().unwrap();
         let order = create_order();
         let id = order.id();
 
@@ -529,7 +529,7 @@ mod tests {
     #[actix_rt::test]
     async fn test_assign_order_to_robot() {
         let mut coordinator = setup_coordinator().await;
-        let screen_addr = "127.0.0.1:8080".parse().unwrap();
+        let screen_addr = "127.0.0.1:0".parse().unwrap();
         let order = create_order();
         coordinator.register_order(screen_addr, &order);
 
@@ -543,7 +543,7 @@ mod tests {
     #[actix_rt::test]
     async fn test_order_completed() {
         let mut coordinator = setup_coordinator().await;
-        let screen_addr = "127.0.0.1:8080".parse().unwrap();
+        let screen_addr = "127.0.0.1:0".parse().unwrap();
         let order = create_order();
         coordinator.register_order(screen_addr, &order);
 
@@ -589,7 +589,7 @@ mod tests {
     #[actix_rt::test]
     async fn test_send_finish_message() {
         let coordinator = setup_coordinator().await;
-        let addr: SocketAddr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080);
+        let addr: SocketAddr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 0);
         let order_id = 1;
 
         coordinator.send_finish_message(order_id, &addr);
@@ -600,7 +600,7 @@ mod tests {
     #[actix_rt::test]
     async fn test_commit_received() {
         let mut coordinator = setup_coordinator().await;
-        let screen_addr = "127.0.0.1:8080".parse().unwrap();
+        let screen_addr = "127.0.0.1:0".parse().unwrap();
         let order = create_order();
         coordinator.register_order(screen_addr, &order);
 
@@ -613,7 +613,7 @@ mod tests {
     #[actix_rt::test]
     async fn test_abort_order() {
         let mut coordinator = setup_coordinator().await;
-        let screen_addr = "127.0.0.1:8080".parse().unwrap();
+        let screen_addr = "127.0.0.1:0".parse().unwrap();
         let order = create_order();
         coordinator.register_order(screen_addr, &order);
 
@@ -625,7 +625,7 @@ mod tests {
     #[actix_rt::test]
     async fn test_reassign_order() {
         let mut coordinator = setup_coordinator().await;
-        let screen_addr = "127.0.0.1:8080".parse().unwrap();
+        let screen_addr = "127.0.0.1:0".parse().unwrap();
         let order = create_order();
         coordinator.register_order(screen_addr, &order);
 
@@ -639,7 +639,7 @@ mod tests {
         let mut coordinator = setup_coordinator().await;
         let robot_id = 1;
         let order = create_order();
-        let screen_addr = "127.0.0.1:8080".parse().unwrap();
+        let screen_addr = "127.0.0.1:0".parse().unwrap();
         coordinator.robot_states.insert(robot_id, Arc::new(AsyncMutex::new(RobotStateForCoordinator::Busy { order_id: order.id() })));
         coordinator.register_order(screen_addr, &order);
 
@@ -653,7 +653,7 @@ mod tests {
     async fn test_send_ready_message() {
         let mut coordinator = setup_coordinator().await;
         let order = create_order();
-        let addr: SocketAddr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080);
+        let addr: SocketAddr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8095);
 
         coordinator.send_ready_message(&order, &addr).await;
 
@@ -663,7 +663,7 @@ mod tests {
     #[actix_rt::test]
     async fn test_handler_screen_message_order_request() {
         let coordinator = setup_coordinator().await.start();
-        let screen_addr = "127.0.0.1:8080".parse().unwrap();
+        let screen_addr = "127.0.0.1:0".parse().unwrap();
         let order = create_order();
 
         coordinator.send(ScreenMessage::OrderRequest { order: order.clone(), screen_addr }).await.unwrap();
@@ -694,7 +694,7 @@ mod tests {
     #[actix_rt::test]
     async fn test_handler_robot_response_access_request() {
         let coordinator = setup_coordinator().await.start();
-        let addr: SocketAddr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080);
+        let addr: SocketAddr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 0);
         let robot_id = 1;
         let flavors = vec![IceCreamFlavor::Vanilla];
 
@@ -706,7 +706,7 @@ mod tests {
     #[actix_rt::test]
     async fn test_handler_robot_response_release_request() {
         let coordinator = setup_coordinator().await.start();
-        let addr: SocketAddr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080);
+        let addr: SocketAddr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 0);
         let robot_id = 1;
         let flavor = IceCreamFlavor::Vanilla;
 

@@ -59,6 +59,7 @@ Para ejecutar las aplicaciones se deberán ingresar los siguientes comandos en d
   cargo run --bin robot <id> <coordinator_id>
   ```
   Si se ejecutan varios por separado, asignarles a todos el mismo _coordinator_id_.
+
 - **Gateway de Pagos**
   ```sh 
   cd payment_gateway

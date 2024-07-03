@@ -283,6 +283,10 @@ impl Screen {
                 println!("[SCREEN {}] Timeout waiting for responses", self.id);
                 return Ok(false);
             }
+            println!(
+                "[SCREEN {}] Received responses: {:?}",
+                self.id,
+                responses.iter().map(|r| r.clone()).collect::<Vec<_>>());
 
             if responses[PAYMENT_GATEWAY] == Some(expected) {
                 if responses[ORDER_MANAGEMENT] == Some(expected) {
@@ -293,7 +297,21 @@ impl Screen {
                 } else if (expected == OrderState::Abort || expected == OrderState::Finished)
                     && responses[ORDER_MANAGEMENT] == Some(OrderState::Ready)
                 {
-                    self.socket.send_to(message, ORDER_MANAGEMENT_IP)?;
+                    println!(
+                        "[SCREEN {}] Sending {:?} to order management {}",
+                        self.id,
+                        expected,
+                        self.order_management_ip);
+                    self.socket.send_to(message, self.order_management_ip)?;
+                    continue;
+                }
+                if let Some(OrderState::ChangingOrderManagement(addr)) = responses[ORDER_MANAGEMENT] {
+                    if addr != self.order_management_ip {
+                        self.order_management_ip = addr;
+                        println!("[SCREEN {}] changing order management ip to {}", self.id, addr);
+                        self.socket.send_to(message, self.order_management_ip)?;
+                    }
+                    responses[PAYMENT_GATEWAY] = Some(OrderState::Ready);
                     continue;
                 }
             } else if responses[PAYMENT_GATEWAY] != Some(expected) {
@@ -469,6 +487,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let screen_cloned = screen.clone()?;
     let screen_actor = screen_cloned.start();
     loop {
+        println!("Waiting for message");
         let mut buf = [0; 1024];
         let (size, from) = screen.socket.recv_from(&mut buf)?;
         let message = String::from_utf8_lossy(&buf[..size]);
@@ -476,6 +495,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
         let response = parts.next().ok_or("No response")?;
         let mut responses = screen.responses.0.lock().map_err(|e| e.to_string())?;
+        println!("Received message: {:?}", message);
+        println!("Received response: {:?}", response);
         match response {
             "ready" => {
                 let order_id = parts.next().ok_or("No order id")?.parse::<usize>()?;
@@ -487,13 +508,16 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     );
                 } else {
                     if from != screen.order_management_ip {
+                        println!("Screen {} changing order management ip to {}", screen.id, from);
                         screen.order_management_ip = from;
+                        responses[ORDER_MANAGEMENT] = Some(OrderState::ChangingOrderManagement(from));
+                    } else {
+                        responses[ORDER_MANAGEMENT] = Some(OrderState::Ready);
+                        println!(
+                            "[SCREEN {}] received READY from order management for order {}",
+                            screen.id, order_id
+                        );
                     }
-                    responses[ORDER_MANAGEMENT] = Some(OrderState::Ready);
-                    println!(
-                        "[SCREEN {}] received READY from order management for order {}",
-                        screen.id, order_id
-                    );
                     //a double ready from order management means that the coordinator has changed
                 }
 
@@ -508,9 +532,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
                         screen.id, order_id
                     );
                 } else {
-                    if from != screen.order_management_ip {
-                        screen.order_management_ip = from;
-                    }
                     responses[ORDER_MANAGEMENT] = Some(OrderState::Abort);
                     println!(
                         "[SCREEN {}] received ABORT from order management for order {}",
@@ -528,9 +549,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
                         screen.id, order_id
                     );
                 } else {
-                    if from != screen.order_management_ip {
-                        screen.order_management_ip = from;
-                    }
                     responses[ORDER_MANAGEMENT] = Some(OrderState::Finished);
                     println!(
                         "[SCREEN {}] received FINISHED from order management for order {}",
@@ -548,9 +566,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
                         screen.id, order_id
                     );
                 } else {
-                    if from != screen.order_management_ip {
-                        screen.order_management_ip = from;
-                    }
                     responses[ORDER_MANAGEMENT] = Some(OrderState::Wait(Instant::now()));
                     println!(
                         "[SCREEN {}] received KEEPALIVE from order management for order {}",

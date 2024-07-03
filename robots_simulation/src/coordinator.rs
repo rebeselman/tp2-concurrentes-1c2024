@@ -35,9 +35,10 @@ use super::screen_message::ScreenMessage;
 pub struct Coordinator {
     containers: HashMap<IceCreamFlavor, Arc<Mutex<Container>>>,
     socket: Arc<UdpSocket>,
-    order_queue: Arc<Mutex<VecDeque<Order>>>,
+    order_queue: Arc<Mutex<VecDeque<(Order, SocketAddr)>>>,
     robot_states: HashMap<usize, Arc<Mutex<RobotStateForCoordinator>>>,
     orders: HashMap<usize, Arc<Mutex<OrderState>>>,
+    received_all_updated_orders: Vec<usize>,
 }
 
 const NUMBER_ROBOTS: usize = 5;
@@ -72,6 +73,7 @@ impl Coordinator {
             order_queue: Arc::new(Default::default()),
             robot_states,
             orders: HashMap::new(),
+            received_all_updated_orders: Vec::new(),
         }
     }
 
@@ -101,7 +103,7 @@ impl Coordinator {
 
         println!("[COORDINATOR] All robots are busy");
         // All robots are busy, handle accordingly (e.g., add to a queue)
-        self.order_queue.lock().await.push_back(order);
+        self.order_queue.lock().await.push_back((order, *screen_addr));
     }
 
     /// Marks an order as completed
@@ -116,6 +118,11 @@ impl Coordinator {
             } else if order_state.status == Pending {
                 order_state.status = CompletedButNotCommited;
             }
+        }
+        // Check queue for pending orders
+        let result = self.order_queue.lock().await.pop_front();
+        if let Some((order, screen_addr)) = result {
+            self.assign_order_to_robot(order, &screen_addr).await;
         }
     }
 
@@ -144,19 +151,28 @@ impl Coordinator {
             let container = self.containers.get(flavor).unwrap().clone();
             let mut container_state = container.lock().await;
             if container_state.is_available() && container_state.quantity() > 0 {
-                container_state.use_container(robot_id, 1);
                 println!("[COORDINATOR] Robot {} is requesting access to container {:?}", robot_id, flavor);
-                let response = AccessAllowed { flavor: *flavor };
-                send_response(&self.socket, &response, addr).await;
-
-                let robot_state = self.robot_states.get(&robot_id).unwrap().clone();
-                let mut robot_state = robot_state.lock().await;
-                if let RobotStateForCoordinator::Busy { order_id } = *robot_state {
-                    *robot_state = RobotStateForCoordinator::UsingContainer { order_id, flavor: *flavor };
+                if self.update_robot_state_to_using_container(&robot_id, flavor).await {
+                    container_state.use_container(robot_id, 1);
+                    println!("[COORDINATOR] Robot {} has access to container {:?}", robot_id, flavor);
+                    let response = AccessAllowed { flavor: *flavor };
+                    send_response(&self.socket, &response, addr).await;
+                } else {
+                    println!("[COORDINATOR] Robot {} isn't processing an order", robot_id);
                 }
                 return true;
             }
             println!("[COORDINATOR] Container {:?} is not available for robot {}", flavor, robot_id);
+        }
+        false
+    }
+
+    async fn update_robot_state_to_using_container(&self, robot_id: &usize, flavor: &IceCreamFlavor) -> bool {
+        let robot_state = self.robot_states.get(&robot_id).unwrap().clone();
+        let mut robot_state = robot_state.lock().await;
+        if let RobotStateForCoordinator::Busy { order_id } = *robot_state {
+            *robot_state = RobotStateForCoordinator::UsingContainer { order_id, flavor: *flavor };
+            return true;
         }
         false
     }
@@ -186,6 +202,7 @@ impl Coordinator {
     fn send_finish_message(&self, order_id: usize, addr: &SocketAddr) {
         let socket = self.socket.clone();
         let addr = *addr;
+        println!("Sending finish message to screen {}", addr);
         actix_rt::spawn(async move {
             let message = format!("finished\n{}", order_id).into_bytes();
             socket.send_to(&message, &addr).await.unwrap();
@@ -239,7 +256,7 @@ impl Coordinator {
                     // if no robot was assigned to the order
                     // remove the order from the order queue
                     let mut order_queue = this.order_queue.lock().await;
-                    order_queue.retain(|o| o.id() != order.id());
+                    order_queue.retain(|(o,_)| o.id() != order.id());
                 }
                 // send abort message to the screen
                 let addr: SocketAddr = SocketAddr::new(order_state.screen_addr.ip(), order_state.screen_addr.port());
@@ -251,7 +268,9 @@ impl Coordinator {
     async fn free_robot_after_abort(&mut self, robot_id: usize) {
         let robot_state = self.robot_states.get(&robot_id).unwrap().clone();
         let mut robot_state = robot_state.lock().await;
+        println!("Robot state: {:?}", *robot_state);
         if let RobotStateForCoordinator::UsingContainer { flavor, .. } = *robot_state {
+            println!("Releasing access to container {:?} from robot {}", flavor, robot_id);
             self.release_access_to_flavor(robot_id, &flavor);
         }
         *robot_state = RobotStateForCoordinator::Idle;
@@ -418,19 +437,53 @@ impl Handler<RobotResponse> for Coordinator {
             RobotResponse::OrderInProcess { robot_id, order, addr: _addr, screen_addr } => {
                 println!("[COORDINATOR] Registering order in process {} from robot {}", order.id(), robot_id);
                 self.register_order(screen_addr, &order);
-                let robot_state = self.robot_states.get(&robot_id).unwrap().clone();
-                let mut this = self.clone();
-                actix_rt::spawn( async move {
-                    this.send_ready_message(&order, &screen_addr).await;
-                    let mut robot_state = robot_state.lock().await;
-                    *robot_state = RobotStateForCoordinator::Busy { order_id: order.id() };
-                });
+                let robot = self.robot_states.get(&robot_id);
+                match robot {
+                    Some(state) => {
+                        self.received_all_updated_orders.push(robot_id);
+                        let mut this = self.clone();
+                        let state = state.clone();
+                        actix_rt::spawn( async move {
+                            this.send_ready_message(&order, &screen_addr).await;
+                            let mut robot_state = state.lock().await;
+                            *robot_state = RobotStateForCoordinator::Busy { order_id: order.id() };
+                        });
+                    }
+                    None => {
+                        // Check if I received all updated orders from robots
+                        if self.received_all_updated_orders.len() == NUMBER_ROBOTS - 1 {
+                            println!("All robots have updated orders");
+                            self.received_all_updated_orders.clear();
+                            let mut this = self.clone();
+                            actix_rt::spawn( async move {
+                                this.send_ready_message(&order, &screen_addr).await;
+                                this.assign_order_to_robot(order, &screen_addr).await;
+                            });
+                        } else {
+                            // Save order in queue
+                            println!("Robot {} is not connected", robot_id);
+                            let mut this = self.clone();
+                            actix_rt::spawn( async move {
+                                this.send_ready_message(&order, &screen_addr).await;
+                                let mut order_queue = this.order_queue.lock().await;
+                                order_queue.push_back((order, screen_addr));
+                            });
+                        }
+                    }
+                }
             }
             RobotResponse::ReassignOrder { robot_id } => {
                 let mut this = self.clone();
                 actix_rt::spawn(async move {
                     this.fix_order(robot_id).await;
                 });
+            }
+            RobotResponse::NoOrderInProcess {
+                robot_id,
+                addr: _addr,
+            } => {
+                println!("No order in process for robot {}", robot_id);
+                self.received_all_updated_orders.push(robot_id);
             }
         }
     }

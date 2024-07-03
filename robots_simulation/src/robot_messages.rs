@@ -24,7 +24,6 @@ pub enum RobotResponse {
         robot_id: usize,
         order: Order,
     },
-
     OrderInProcess {
         robot_id: usize,
         order: Order,
@@ -33,5 +32,9 @@ pub enum RobotResponse {
     },
     ReassignOrder {
         robot_id: usize
-    }
+    },
+    NoOrderInProcess {
+        robot_id: usize,
+        addr: SocketAddr,
+    },
 }

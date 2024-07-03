@@ -1,6 +1,6 @@
 use orders::ice_cream_flavor::IceCreamFlavor;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum RobotStateForCoordinator {
     Idle,
     Disconnected,

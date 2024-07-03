@@ -253,6 +253,7 @@ impl Robot {
                 }
             }
             self.election_state = ElectionState::None;
+            self.send_current_order_to_new_coordinator().expect("Error sending order to new coordinator");
         } else {
             println!("[Robot {}] Election failed. I am not the new coordinator", self.robot_id);
         }
@@ -325,10 +326,19 @@ impl Robot {
         let order = match &self.state {
             RobotState::WaitingForAccess(order, _flavors) => order.clone(),
             RobotState::ProcessingOrder(order) => order.clone(),
-            _ => return Ok(())
+            _ => return self.send_idle_message(),
         };
         // Send the order to the new coordinator
         self.send_order_in_process_message(&order)?;
+        Ok(())
+    }
+
+    fn send_idle_message(&mut self) -> io::Result<()> {
+        let request = RobotResponse::NoOrderInProcess {
+            robot_id: self.robot_id,
+            addr: self.socket.local_addr()?,
+        };
+        self.make_request(&request)?;
         Ok(())
     }
 
@@ -342,7 +352,12 @@ impl Robot {
                     addr: self.socket.local_addr()?,
                     screen_addr
                 };
-                self.make_request(&request)?;
+                if self.is_coordinator {
+                    let coordinator = self.coordinator.clone().ok_or(io::Error::new(io::ErrorKind::Other, "Coordinator not set"))?;
+                    coordinator.do_send(request);
+                } else {
+                    self.make_request(&request)?;
+                }
             }
             None => {
                 println!("[{}] [Robot {}] Order screen address not set", Local::now().format("%Y-%m-%d %H:%M:%S"), self.robot_id);

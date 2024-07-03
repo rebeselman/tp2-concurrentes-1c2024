@@ -2,7 +2,7 @@ use super::message::Message;
 use orders::order::Order;
 use rand::{rngs::ThreadRng, Rng};
 
-const CAPTURE_PROBABILITY: f64 = 0.9;
+const CAPTURE_PROBABILITY: f64 = 0.5;
 
 /// Represents a `Prepare` message with its corresponding order.
 pub struct Prepare {

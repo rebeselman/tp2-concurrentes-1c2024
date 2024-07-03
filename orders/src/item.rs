@@ -53,4 +53,31 @@ impl Item {
 
         }
     }
+
+    fn flavor_amount_per_container(&self) -> u32 {
+        match self.container {
+            ContainerType::Cup => 15,
+            ContainerType::Cone => 10,
+            ContainerType::OneKilo => 100,
+            ContainerType::HalfKilo => 50,
+            ContainerType::QuarterKilo => 25,
+        }
+    }
+
+    pub fn amount_per_flavor(&self) -> Vec<(IceCreamFlavor, u32)> {
+        let mut amounts: Vec<(IceCreamFlavor, u32)> = Vec::new();
+        for flavor in &self.flavors {
+            let mut found = false;
+            for amount in &mut amounts {
+                if amount.0 == *flavor {
+                    amount.1 += self.units * self.flavor_amount_per_container();
+                    found = true;
+                }
+            }
+            if !found {
+                amounts.push((*flavor, self.units * self.flavor_amount_per_container()));
+            }
+        }
+        amounts
+    }
 }

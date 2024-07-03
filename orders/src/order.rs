@@ -1,6 +1,7 @@
 //! Represents an order from a client asking for items offered by an ice cream local
 use serde::{Deserialize, Serialize};
-
+use std::collections::HashMap;
+use crate::ice_cream_flavor::IceCreamFlavor;
 use crate::item::Item;
 #[derive(Debug, Default, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct Order {
@@ -47,5 +48,20 @@ impl Order {
 
     pub fn time_to_prepare(&self) -> u32 {
         return self.items.iter().map(|item| item.time_to_prepare()).sum();
+    }
+
+    pub fn amounts_for_all_flavors(&self) -> HashMap<IceCreamFlavor, u32> {
+        let mut flavor_totals = HashMap::new();
+
+        for item in &self.items {
+            for (flavor, amount) in item.amount_per_flavor() {
+                *flavor_totals.entry(flavor).or_insert(0) += amount;
+            }
+        }
+        flavor_totals
+    }
+
+    pub fn amounts_for_flavor(&self, flavor: IceCreamFlavor) -> u32 {
+        self.amounts_for_all_flavors().get(&flavor).copied().unwrap_or(0)
     }
 }

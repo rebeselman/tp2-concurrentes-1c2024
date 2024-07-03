@@ -1,5 +1,7 @@
 //! Messages that robots send to the coordinator
 //! access request, access release and order completed and commit i think?
+
+use std::collections::HashMap;
 use std::net::SocketAddr;
 
 use actix::Message;
@@ -12,7 +14,7 @@ use serde::{Deserialize, Serialize};
 pub enum RobotResponse {
     AccessRequest {
         robot_id: usize,
-        flavors: Vec<IceCreamFlavor>,
+        flavors: HashMap<IceCreamFlavor, u32>,
         addr: SocketAddr,
     },
     ReleaseRequest {

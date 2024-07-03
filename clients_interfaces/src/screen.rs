@@ -283,10 +283,6 @@ impl Screen {
                 println!("[SCREEN {}] Timeout waiting for responses", self.id);
                 return Ok(false);
             }
-            println!(
-                "[SCREEN {}] Received responses: {:?}",
-                self.id,
-                responses.iter().map(|r| r.clone()).collect::<Vec<_>>());
 
             if responses[PAYMENT_GATEWAY] == Some(expected) {
                 if responses[ORDER_MANAGEMENT] == Some(expected) {
@@ -297,11 +293,6 @@ impl Screen {
                 } else if (expected == OrderState::Abort || expected == OrderState::Finished)
                     && responses[ORDER_MANAGEMENT] == Some(OrderState::Ready)
                 {
-                    println!(
-                        "[SCREEN {}] Sending {:?} to order management {}",
-                        self.id,
-                        expected,
-                        self.order_management_ip);
                     self.socket.send_to(message, self.order_management_ip)?;
                     continue;
                 }
@@ -487,7 +478,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let screen_cloned = screen.clone()?;
     let screen_actor = screen_cloned.start();
     loop {
-        println!("Waiting for message");
         let mut buf = [0; 1024];
         let (size, from) = screen.socket.recv_from(&mut buf)?;
         let message = String::from_utf8_lossy(&buf[..size]);
@@ -495,8 +485,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
         let response = parts.next().ok_or("No response")?;
         let mut responses = screen.responses.0.lock().map_err(|e| e.to_string())?;
-        println!("Received message: {:?}", message);
-        println!("Received response: {:?}", response);
         match response {
             "ready" => {
                 let order_id = parts.next().ok_or("No order id")?.parse::<usize>()?;

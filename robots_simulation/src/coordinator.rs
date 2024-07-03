@@ -42,7 +42,7 @@ pub struct Coordinator {
 }
 
 const NUMBER_ROBOTS: usize = 5;
-const INITIAL_QUANTITY: usize = 10000; // Initial quantity for each flavor
+const INITIAL_QUANTITY: u32 = 10000; // Initial quantity for each flavor
 
 impl Coordinator {
     /// Creates a new Coordinator actor
@@ -57,7 +57,7 @@ impl Coordinator {
             IceCreamFlavor::Mint,
             IceCreamFlavor::Lemon,
         ];
-        // Faltaría modelar el stock de los contenedores!!!
+
         let containers = flavors
             .into_iter()
             .map(|flavor| (flavor, Arc::new(Mutex::new(Container::new(INITIAL_QUANTITY)))))
@@ -139,27 +139,36 @@ impl Coordinator {
 
     /// Checks if a flavor is available and sends a response to the robot
     async fn check_if_flavor_available(
-        &self,
+        &mut self,
         robot_id: usize,
-        flavors: &Vec<IceCreamFlavor>,
+        flavors: &HashMap<IceCreamFlavor, u32>,
         addr: SocketAddr,
     ) -> bool {
         if self.check_robot_has_container(robot_id, addr).await {
             return true;
         }
-        for flavor in flavors {
+        for (flavor, amount) in flavors {
             let container = self.containers.get(flavor).unwrap().clone();
             let mut container_state = container.lock().await;
-            if container_state.is_available() && container_state.quantity() > 0 {
+            if container_state.is_available() {
                 println!("[COORDINATOR] Robot {} is requesting access to container {:?}", robot_id, flavor);
-                if self.update_robot_state_to_using_container(&robot_id, flavor).await {
-                    container_state.use_container(robot_id, 1);
-                    println!("[COORDINATOR] Robot {} has access to container {:?}", robot_id, flavor);
-                    let response = AccessAllowed { flavor: *flavor };
-                    send_response(&self.socket, &response, addr).await;
-                } else {
+                if !self.update_robot_state_to_using_container(&robot_id, flavor).await {
                     println!("[COORDINATOR] Robot {} isn't processing an order", robot_id);
+                    return false;
                 }
+                if container_state.quantity() < *amount {
+                    println!("[COORDINATOR] Container {:?} is not enough for robot {}", flavor, robot_id);
+                    let robot_state = self.robot_states.get(&robot_id).unwrap().clone();
+                    let robot_state = robot_state.lock().await;
+                    if let RobotStateForCoordinator::UsingContainer { order_id, .. } = *robot_state {
+                        self.abort_order_by_id(order_id).await;
+                    };
+                    return false;
+                }
+                container_state.use_container(robot_id, amount);
+                println!("[COORDINATOR] Robot {} has access to container {:?}", robot_id, flavor);
+                let response = AccessAllowed { flavor: *flavor };
+                send_response(&self.socket, &response, addr).await;
                 return true;
             }
             println!("[COORDINATOR] Container {:?} is not available for robot {}", flavor, robot_id);
@@ -225,8 +234,10 @@ impl Coordinator {
         if let Some(order_state) = self.orders.get_mut(&order.id()) {
             let mut order_state = order_state.lock().await;
             if order_state.status == Pending {
+                println!("[COORDINATOR] Received commit message for order: {}", order.id());
                 order_state.status = CommitReceived;
             } else if order_state.status == CompletedButNotCommited {
+                println!("[COORDINATOR] Received commit message for order: {}", order.id());
                 order_state.status = Completed;
                 send_finished = true;
                 addr = order_state.screen_addr;
@@ -263,6 +274,12 @@ impl Coordinator {
                 this.send_abort_message(order_state.order.id(), &addr);
             });
         }
+    }
+
+    async fn abort_order_by_id(&mut self, order_id: usize) {
+        let order = self.orders.get(&order_id).unwrap().clone();
+        let order = order.lock().await.order.clone();
+        self.abort_order(order);
     }
 
     async fn free_robot_after_abort(&mut self, robot_id: usize) {
@@ -395,7 +412,7 @@ impl Handler<RobotResponse> for Coordinator {
                 addr,
             } => {
                 let flavors = flavors.clone();
-                let this = self.clone();
+                let mut this = self.clone();
                 actix_rt::spawn(async move {
                     let access_given = this.check_if_flavor_available(robot_id, &flavors, addr)
                         .await;

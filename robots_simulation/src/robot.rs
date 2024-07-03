@@ -1,7 +1,7 @@
 //! Represents a robot that can process orders
 //! Each robot should be run in a separate process
 use orders::{ice_cream_flavor::IceCreamFlavor, order::Order};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::{io, thread};
 use std::net::SocketAddr;
 use tokio::net::UdpSocket;
@@ -85,12 +85,7 @@ impl Robot {
 
     /// Processes an order
     fn process_order(&mut self, order: &Order) -> io::Result<()> {
-        let flavors: HashSet<IceCreamFlavor> = order
-            .items()
-            .iter()
-            .flat_map(|item| item.flavors().clone())
-            .collect();
-        let flavors_needed: Vec<IceCreamFlavor> = flavors.into_iter().collect();
+        let flavors_needed: HashMap<IceCreamFlavor, u32> = order.amounts_for_all_flavors();
         println!("[{}] [Robot {}] Processing order: {}", Local::now().format("%Y-%m-%d %H:%M:%S"), self.robot_id, order.id());
         self.request_access(order, &flavors_needed)?;
 
@@ -103,7 +98,7 @@ impl Robot {
     /// * `order` - An Order representing the order that the robot is processing
     /// * `flavors` - A Vec<IceCreamFlavor> representing the flavors that the robot needs access to
 
-    fn request_access(&mut self, order: &Order, flavors: &Vec<IceCreamFlavor>) -> io::Result<()> {
+    fn request_access(&mut self, order: &Order, flavors: &HashMap<IceCreamFlavor, u32>) -> io::Result<()> {
         println!(
             "[Robot {}] Requesting access for flavors: {:?}",
             self.robot_id, flavors
@@ -260,12 +255,12 @@ impl Robot {
     }
 
     fn process_allowed_access(&mut self, flavor: IceCreamFlavor) -> io::Result<()> {
-        let (order, flavors) = match &self.state {
+        let (order, mut flavors) = match &self.state {
             RobotState::WaitingForAccess(order, flavors) => (order.clone(), flavors.clone()),
             _ => return Ok(()),
         };
         self.state = RobotState::UsingContainer(flavor);
-        if flavors.contains(&flavor) {
+        if flavors.contains_key(&flavor) {
             println!(
                 "[{}] [Robot {}] Access allowed for flavor {:?}", Local::now().format("%Y-%m-%d %H:%M:%S"), self.robot_id, &flavor
             );
@@ -274,10 +269,8 @@ impl Robot {
         thread::sleep(Duration::from_millis(order.time_to_prepare() as u64));
         self.release_access(flavor)?;
 
-        let flavor_needed: Vec<IceCreamFlavor> = flavors
-            .into_iter()
-            .filter(|other| *other != flavor)
-            .collect();
+        flavors.remove(&flavor);
+        let flavor_needed = flavors.clone();
         if !flavor_needed.is_empty() {
             self.request_access(&order, &flavor_needed)?;
         } else {
@@ -424,7 +417,6 @@ impl Robot {
                 }
                 "commit" => {
                     let order: Order = serde_json::from_str(content.as_str()).unwrap();
-                    println!("[COORDINATOR] Received commit message for order: {}", order.id());
                     let commit_received = ScreenMessage::CommitReceived {
                         order
                     };
@@ -498,14 +490,17 @@ impl Robot {
             }
             PingMessage::Pong => {
                 // Update the status of the peer to 0 attempts
-                if let Some(status) = self.peers.get_mut(&addr.to_string()) {
-                    status.last_pong = Some(Instant::now());
-                    status.ping_attempts = 0;
-                }
+                self.update_last_pong(&addr);
             }
         }
     }
 
+    fn update_last_pong(&mut self, addr: &SocketAddr) {
+        if let Some(status) = self.peers.get_mut(&addr.to_string()) {
+            status.last_pong = Some(Instant::now());
+            status.ping_attempts = 0;
+        }
+    }
 
     fn handle_as_robot(&mut self, message: CoordinatorMessage) {
         match message {
@@ -618,9 +613,11 @@ impl StreamHandler<io::Result<(usize, Vec<u8>, SocketAddr)>> for Robot {
                 let message: ElectionMessage = serde_json::from_str(parts.next().unwrap()).unwrap();
                 self.handle_election_message(message);
             } else if self.is_coordinator {
+                self.update_last_pong(&addr);
                 self.handle_as_coordinator(message_type, parts, addr);
             } else {
                 let message: CoordinatorMessage = serde_json::from_str(parts.next().unwrap()).unwrap();
+                self.update_last_pong(&addr);
                 self.handle_as_robot(message);
             }
         } else {

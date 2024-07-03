@@ -320,6 +320,9 @@ impl Screen {
                 println!("[SCREEN {}] Timeout waiting for responses", self.id);
                 return Ok(false);
             }
+            println!(
+                "[SCREEN {}] Received responses: {:?}",
+                self.id, responses);
 
             if responses[PAYMENT_GATEWAY] == Some(expected) {
                 if responses[ORDER_MANAGEMENT] == Some(expected) {
@@ -468,6 +471,9 @@ impl Screen {
             "keepalive" => OrderState::Wait(Instant::now()),
             _ => return Ok(()),
         };
+        println!(
+            "[SCREEN {}] received {} from {} for order {}",
+            self.id, message, from, order_id);
         let mut responses = self.responses.0.lock().map_err(|e| e.to_string())?;
 
         if from == PAYMENT_GATEWAY_IP {

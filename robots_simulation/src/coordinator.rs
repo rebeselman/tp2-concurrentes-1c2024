@@ -13,6 +13,7 @@ use tokio::net::UdpSocket;
 use tokio::sync::Mutex;
 
 use crate::container::Container;
+use crate::order_status::OrderStatus;
 use crate::robot_state_for_coordinator::RobotStateForCoordinator;
 
 use super::coordinator_messages::CoordinatorMessage::{self, AccessAllowed, AccessDenied, OrderReceived};
@@ -318,10 +319,10 @@ impl Coordinator {
         }
     }
 
-    fn register_order(&mut self, screen_addr: SocketAddr, order: &Order) {
+    fn register_order(&mut self, screen_addr: SocketAddr, order: &Order, status: OrderStatus) {
         self.orders.insert(order.id(), Arc::new(Mutex::new(OrderState {
             order: order.clone(),
-            status: Pending,
+            status,
             screen_addr,
             robot_id: None,
         })));
@@ -373,9 +374,21 @@ impl Handler<ScreenMessage> for Coordinator {
     /// Handles a ScreenMessage
     /// It sends an ACK message to the screen
     fn handle(&mut self, msg: ScreenMessage, _ctx: &mut Self::Context) {
+        println!("Received message from screen");
         match msg {
             ScreenMessage::OrderRequest { order, screen_addr } => {
-                self.register_order(screen_addr, &order);
+                if self.orders.contains_key(&order.id()) {
+                    println!("[COORDINATOR] Order {} already registered", order.id());
+                    // Change screen address of order
+                    let this = self.clone();
+                    let order_id = order.id();
+                    actix_rt::spawn(async move {
+                        let order_state = this.orders.get(&order_id).expect("Order not found").clone();
+                        let mut order_state = order_state.lock().await;
+                        order_state.screen_addr = screen_addr;
+                    });
+                }
+                self.register_order(screen_addr, &order, Pending);
                 let order = order.clone();
                 let addr = screen_addr;
                 let mut this = self.clone();
@@ -453,7 +466,7 @@ impl Handler<RobotResponse> for Coordinator {
             }
             RobotResponse::OrderInProcess { robot_id, order, addr: _addr, screen_addr } => {
                 println!("[COORDINATOR] Registering order in process {} from robot {}", order.id(), robot_id);
-                self.register_order(screen_addr, &order);
+                self.register_order(screen_addr, &order, CommitReceived);
                 let robot = self.robot_states.get(&robot_id);
                 match robot {
                     Some(state) => {
@@ -544,7 +557,7 @@ mod tests {
         let order = generate_orders::create_order_with_id(&mut rng, 1).unwrap();
         let id = order.id();
 
-        coordinator.register_order(screen_addr, &order);
+        coordinator.register_order(screen_addr, &order, Pending);
         let orders = coordinator.orders.clone();
         assert_eq!(orders.len(), 1);
         assert!(orders.contains_key(&id));
@@ -568,7 +581,7 @@ mod tests {
         let screen_addr = "127.0.0.1:0".parse().unwrap();
         let mut rng = rand::thread_rng();
         let order = generate_orders::create_order_with_id(&mut rng, 1).unwrap();
-        coordinator.register_order(screen_addr, &order);
+        coordinator.register_order(screen_addr, &order, Pending);
 
         coordinator.assign_order_to_robot(order.clone(), &screen_addr).await;
 
@@ -583,7 +596,7 @@ mod tests {
         let screen_addr = "127.0.0.1:0".parse().unwrap();
         let mut rng = rand::thread_rng();
         let order = generate_orders::create_order_with_id(&mut rng, 1).unwrap();
-        coordinator.register_order(screen_addr, &order);
+        coordinator.register_order(screen_addr, &order, Pending);
 
         coordinator.order_completed(order.id()).await;
 
@@ -597,7 +610,7 @@ mod tests {
         let addr: SocketAddr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080);
         let robot_id = 1;
         let order = generate_orders::create_order_with_id(&mut rand::thread_rng(), 1).unwrap();
-        coordinator.register_order(addr, &order);
+        coordinator.register_order(addr, &order, Pending);
         coordinator.robot_states.insert(robot_id, Arc::new(AsyncMutex::new(RobotStateForCoordinator::Busy { order_id: order.id() })));
         let mut flavors = HashMap::new();
         flavors.insert(IceCreamFlavor::Vanilla, 50);
@@ -658,7 +671,7 @@ mod tests {
         let screen_addr = "127.0.0.1:0".parse().unwrap();
         let mut rng = rand::thread_rng();
         let order = generate_orders::create_order_with_id(&mut rng, 1).unwrap();
-        coordinator.register_order(screen_addr, &order);
+        coordinator.register_order(screen_addr, &order, Pending);
 
         coordinator.commit_received(&order).await;
 
@@ -672,7 +685,7 @@ mod tests {
         let screen_addr = "127.0.0.1:0".parse().unwrap();
         let mut rng = rand::thread_rng();
         let order = generate_orders::create_order_with_id(&mut rng, 1).unwrap();
-        coordinator.register_order(screen_addr, &order);
+        coordinator.register_order(screen_addr, &order, Pending);
 
         coordinator.abort_order(order.clone());
 
@@ -685,7 +698,7 @@ mod tests {
         let screen_addr = "127.0.0.1:0".parse().unwrap();
         let mut rng = rand::thread_rng();
         let order = generate_orders::create_order_with_id(&mut rng, 1).unwrap();
-        coordinator.register_order(screen_addr, &order);
+        coordinator.register_order(screen_addr, &order, Pending);
 
         coordinator.reassign_order(order.clone()).await;
 
@@ -700,7 +713,7 @@ mod tests {
         let order = generate_orders::create_order_with_id(&mut rng, 1).unwrap();
         let screen_addr = "127.0.0.1:0".parse().unwrap();
         coordinator.robot_states.insert(robot_id, Arc::new(AsyncMutex::new(RobotStateForCoordinator::Busy { order_id: order.id() })));
-        coordinator.register_order(screen_addr, &order);
+        coordinator.register_order(screen_addr, &order, Pending);
 
         coordinator.fix_order(robot_id).await;
 

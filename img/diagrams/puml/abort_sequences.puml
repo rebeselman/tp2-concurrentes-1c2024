@@ -22,7 +22,8 @@ ran out of a
 flavor stock
 end note
 Robot --> ClientInterface: //abort// (order_id)
-ClientInterface -> PaymentGateway: //abort// (order_id)
+ClientInterface -> PaymentGateway: //abort// (order)
+PaymentGateway --> ClientInterface: //abort// (order_id)
 ClientInterface --> Client: order rejected
 
 @enduml

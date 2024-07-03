@@ -290,6 +290,9 @@ impl Screen {
                 println!("[SCREEN {}] Timeout waiting for responses", self.id);
                 return Ok(false);
             }
+            println!(
+                "[SCREEN {}] Received responses: {:?}",
+                self.id, responses);
 
             if responses[PAYMENT_GATEWAY] == Some(expected) {
                 if responses[ORDER_MANAGEMENT] == Some(expected) {
@@ -303,7 +306,7 @@ impl Screen {
                     self.socket.send_to(message, self.order_management_ip)?;
                     continue;
                 }
-                if let Some(OrderState::ChangingOrderManagement(addr)) = responses[ORDER_MANAGEMENT] {
+/*                if let Some(OrderState::ChangingOrderManagement(addr)) = responses[ORDER_MANAGEMENT] {
                     if addr != self.order_management_ip {
                         self.order_management_ip = addr;
                         println!("[SCREEN {}] changing order management ip to {}", self.id, addr);
@@ -311,7 +314,7 @@ impl Screen {
                     }
                     responses[PAYMENT_GATEWAY] = Some(OrderState::Ready);
                     continue;
-                }
+                }*/
             } else if responses[PAYMENT_GATEWAY] != Some(expected) {
                 return Ok(false);
             }
@@ -446,6 +449,9 @@ impl Screen {
             "keepalive" => OrderState::Wait(Instant::now()),
             _ => return Ok(()),
         };
+        println!(
+            "[SCREEN {}] received {} from {} for order {}",
+            self.id, message, from, order_id);
         let mut responses = self.responses.0.lock().map_err(|e| e.to_string())?;
        
         if from  == PAYMENT_GATEWAY_IP {

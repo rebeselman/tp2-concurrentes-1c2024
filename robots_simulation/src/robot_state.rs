@@ -1,8 +1,10 @@
+use std::collections::HashMap;
 use orders::{ice_cream_flavor::IceCreamFlavor, order::Order};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum RobotState {
     Idle,
-    WaitingForAccess(Order, Vec<IceCreamFlavor>),
+    WaitingForAccess(Order, HashMap<IceCreamFlavor, u32>),
     ProcessingOrder(Order),
+    UsingContainer(IceCreamFlavor),
 }

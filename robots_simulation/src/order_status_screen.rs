@@ -4,7 +4,7 @@ use orders::order::Order;
 
 use crate::order_status::OrderStatus;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct OrderState {
     pub order: Order,
     pub status: OrderStatus,

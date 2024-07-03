@@ -14,14 +14,15 @@ use std::{
     thread,
     time::{Duration, Instant},
 };
-
+use std::net::SocketAddr;
 //use clients_interfaces::screen_message::ScreenMessage;
 use crate::{
     order_state::OrderState, screen_message::ScreenMessage, screen_state::ScreenState,
 };
+
 const TIMEOUT: Duration = Duration::from_secs(60);
 const PAYMENT_GATEWAY_IP: &str = "127.0.0.1:8081";
-const ORDER_MANAGEMENT_IP: &str = "127.0.0.1:8080";
+const ORDER_MANAGEMENT_IP: &str = "127.0.0.1:8090";
 const STAKEHOLDERS: usize = 2;
 const PAYMENT_GATEWAY: usize = 1;
 const ORDER_MANAGEMENT: usize = 0;
@@ -41,7 +42,8 @@ pub struct Screen {
     id: usize,
     log: HashMap<usize, OrderState>,
     pub socket: UdpSocket,
-    pub responses: Arc<(Mutex<Vec<Option<OrderState>>>, Condvar)>,
+    responses: Arc<(Mutex<Vec<Option<OrderState>>>, Condvar)>,
+    order_management_ip: SocketAddr,
     screen_in_charge_state: Arc<(Mutex<Option<ScreenState>>, Condvar)>,
     last_order_completed: Option<usize>,
     screen_in_charge: usize,
@@ -90,6 +92,7 @@ impl Screen {
             log: HashMap::new(),
             socket: UdpSocket::bind(id_to_addr(id))?,
             responses: Arc::new((Mutex::new(vec![None; STAKEHOLDERS]), Condvar::new())),
+            order_management_ip: ORDER_MANAGEMENT_IP.to_owned().parse().unwrap(),
             screen_in_charge_state: Arc::new((Mutex::new(None), Condvar::new())),
             last_order_completed: None,
             screen_in_charge: screen_charge,
@@ -144,6 +147,7 @@ impl Screen {
             log: HashMap::new(),
             socket: self.socket.try_clone()?,
             responses: self.responses.clone(),
+            order_management_ip: self.order_management_ip.clone(),
             screen_in_charge_state: self.screen_in_charge_state.clone(),
             last_order_completed: self.last_order_completed,
             screen_in_charge: self.screen_in_charge,
@@ -175,8 +179,9 @@ impl Screen {
         let reader = BufReader::new(file);
         for line in reader.lines() {
             let order: Order = serde_json::from_str(&line?)?;
-            if !self.protocol(order)? {
-                println!("[SCREEN] abort");
+            match self.protocol(order) {
+                Ok(_) => (),
+                Err(e) => println!("[SCREEN {}] Error processing order: {:?}", self.id, e),
             }
         }
         Ok(())
@@ -206,7 +211,14 @@ impl Screen {
     /// "commit" message to the payment gateway and the order management and waits for a "finished" message as well.
     /// At this point, they can't abort the order.
     fn commit(&mut self, order: &Order) -> Result<bool, Box<dyn Error>> {
-        println!("[SCREEN {}] commiting order: {:?}", self.id, order.id());
+        if let Some(state) = self.log.get(&order.id()) {
+            if *state == OrderState::Finished {
+                println!("[SCREEN {}] Order {} already committed", self.id, order.id());
+                return Ok(true);
+            }
+        }
+
+        println!("[SCREEN {}] Committing order: {:?}", self.id, order.id());
         self.log.insert(order.id(), OrderState::Finished);
 
         let order_serialized = serde_json::to_vec(order)?;
@@ -262,7 +274,7 @@ impl Screen {
         }
         println!("[SCREEN {} ]Sending message", self.id);
         self.socket.send_to(message, PAYMENT_GATEWAY_IP)?;
-        self.socket.send_to(message, ORDER_MANAGEMENT_IP)?;
+        self.socket.send_to(message, self.order_management_ip)?;
         let (lock, cvar) = &*self.responses;
         let mut responses = lock.lock().map_err(|e| e.to_string())?;
         loop {
@@ -289,7 +301,16 @@ impl Screen {
                 } else if (expected == OrderState::Abort || expected == OrderState::Finished)
                     && responses[ORDER_MANAGEMENT] == Some(OrderState::Ready)
                 {
-                    self.socket.send_to(message, ORDER_MANAGEMENT_IP)?;
+                    self.socket.send_to(message, self.order_management_ip)?;
+                    continue;
+                }
+                if let Some(OrderState::ChangingOrderManagement(addr)) = responses[ORDER_MANAGEMENT] {
+                    if addr != self.order_management_ip {
+                        self.order_management_ip = addr;
+                        println!("[SCREEN {}] changing order management ip to {}", self.id, addr);
+                        self.socket.send_to(message, self.order_management_ip)?;
+                    }
+                    responses[PAYMENT_GATEWAY] = Some(OrderState::Ready);
                     continue;
                 }
             } else if responses[PAYMENT_GATEWAY] != Some(expected) {

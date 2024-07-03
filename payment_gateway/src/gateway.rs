@@ -106,7 +106,7 @@ mod tests {
         let mut buf = [0; 1024];
         let (len, _src) = screen_socket.recv_from(&mut buf).await.unwrap();
         let response = String::from_utf8_lossy(&buf[..len]).to_string();
-        assert_eq!(response, "9\nabort");
+        assert_eq!(response, "abort\n9");
 
         // Give some time for logging
         sleep(Duration::from_millis(100)).await;
@@ -142,7 +142,7 @@ mod tests {
         let mut buf = [0; 1024];
         let (len, _src) = screen_socket.recv_from(&mut buf).await.unwrap();
         let response = String::from_utf8_lossy(&buf[..len]).to_string();
-        assert_eq!(response, "9\nfinished");
+        assert_eq!(response, "finished\n9");
 
         // Give some time for logging
         sleep(Duration::from_millis(100)).await;
@@ -178,7 +178,7 @@ mod tests {
         let mut buf = [0; 1024];
         let (len, _src) = screen_socket.recv_from(&mut buf).await.unwrap();
         let response = String::from_utf8_lossy(&buf[..len]).to_string();
-        assert_eq!(response, "9\nready");
+        assert_eq!(response, "ready\n9");
 
         // Give some time for logging
         sleep(Duration::from_millis(100)).await;

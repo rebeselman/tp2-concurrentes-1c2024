@@ -1,54 +1,36 @@
 use actix::{Actor, System};
-use robots_simulation::coordinator_messages::CoordinatorMessage::{
-    self, AccessAllowed, AccessDenied, OrderReceived, ACK,
-};
 use robots_simulation::robot::Robot;
 use std::io;
-use std::net::UdpSocket;
+use tokio::net::UdpSocket;
 use std::sync::Arc;
-use std::time::Duration;
-fn main() -> io::Result<()> {
+use robots_simulation::coordinator::Coordinator;
+
+fn build() -> io::Result<(usize, usize, String)> {
     let robot_id: usize = std::env::args().nth(1).unwrap().parse().unwrap();
+    let is_coordinator: usize = std::env::args().nth(2).unwrap().parse().unwrap();
     let addr = format!("127.0.0.1:809{}", robot_id);
-    let socket = UdpSocket::bind(&addr)?;
-    socket.set_read_timeout(Some(Duration::from_secs(1)))?;
-    let server_addr = "127.0.0.1:8080".to_string();
-    let socket = Arc::new(socket);
 
+    Ok((robot_id, is_coordinator, addr))
+}
+
+
+fn main() -> io::Result<()> {
     let system = System::new();
-
-    println!("Robot {} is ready", robot_id);
+    let (robot_id, coordinator_id, addr) = build()?;
     system.block_on(async {
-        let robot = Robot::new(robot_id, Arc::clone(&socket), server_addr).start();
+        let socket: UdpSocket = UdpSocket::bind(&addr).await.unwrap();
+        let socket = Arc::new(socket);
+        let coordinator_addr = format!("127.0.0.1:809{}", coordinator_id);
+        let is_coordinator = robot_id == coordinator_id;
 
-        loop {
-            let mut buf = [0; 1024];
-            if let Ok((amt, _)) = socket.recv_from(&mut buf) {
-                let message: Result<CoordinatorMessage, _> = serde_json::from_slice(&buf[..amt]);
-                match message {
-                    Ok(OrderReceived { robot_id, order }) => {
-                        robot.send(OrderReceived { robot_id, order }).await.unwrap();
-                    }
-                    Ok(AccessAllowed { flavor }) => {
-                        robot.send(AccessAllowed { flavor }).await.unwrap();
-                    }
-                    Ok(AccessDenied { reason }) => {
-                        robot.send(AccessDenied { reason }).await.unwrap();
-                    }
-                    Ok(CoordinatorMessage::OrderAborted { robot_id, order }) => {
-                        robot
-                            .send(CoordinatorMessage::OrderAborted { robot_id, order })
-                            .await
-                            .unwrap();
-                    }
-                    Ok(ACK) => {
-                        println!("ACK received");
-                    }
-                    _ => {}
-                }
-                // tokio::time::sleep(Duration::from_millis(100)).await;
-            }
+        let mut robot = Robot::new(robot_id, socket.clone(), coordinator_addr.clone(), is_coordinator, coordinator_id);
+
+        if is_coordinator {
+            println!("Robot {} is the coordinator", robot_id);
+            let coordinator = Coordinator::new(socket.clone(), robot_id);
+            robot.coordinator = Some(coordinator.start());
         }
+        robot.start();
     });
 
     system.run()

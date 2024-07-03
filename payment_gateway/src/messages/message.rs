@@ -82,14 +82,14 @@ mod tests {
     fn test_process_abort_message() {
         let order = Order::new(9, 25, "0000111122223333".to_string(), Vec::new());
         let message = Abort::new(order);
-        assert_eq!(message.process(), b"9\nabort")
+        assert_eq!(message.process(), b"abort\n9")
     }
 
     #[test]
     fn test_process_commit_message() {
         let order = Order::new(9, 25, "0000111122223333".to_string(), Vec::new());
         let message = Commit::new(order);
-        assert_eq!(message.process(), b"9\nfinished")
+        assert_eq!(message.process(), b"finished\n9")
     }
 
     #[test]
@@ -97,7 +97,7 @@ mod tests {
         let order = Order::new(9, 25, "0000111122223333".to_string(), Vec::new());
         let message = Prepare::new(order);
         let result = message.process();
-        assert!(result == b"9\nready" || result == b"9\nabort");
+        assert!(result == b"ready\n9" || result == b"abort\n9");
     }
 
     #[test]

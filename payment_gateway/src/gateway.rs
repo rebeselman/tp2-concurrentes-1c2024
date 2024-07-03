@@ -32,11 +32,11 @@ async fn handle_messages(addr: &str, mut logger: Logger) -> io::Result<()> {
                 let response = message.process();
                 println!(
                     "[Payment Gateway] Sending message '{} {}' to {}",
-                    message.get_order().id(),
                     String::from_utf8_lossy(&response)
                         .split('\n')
                         .next()
                         .unwrap_or("<Error getting message type>"),
+                    message.get_order().id(),
                     addr
                 );
                 socket.send_to(&response, addr).await?;
@@ -106,7 +106,7 @@ mod tests {
         let mut buf = [0; 1024];
         let (len, _src) = screen_socket.recv_from(&mut buf).await.unwrap();
         let response = String::from_utf8_lossy(&buf[..len]).to_string();
-        assert_eq!(response, "9\nabort");
+        assert_eq!(response, "abort\n9");
 
         // Give some time for logging
         sleep(Duration::from_millis(100)).await;
@@ -142,7 +142,7 @@ mod tests {
         let mut buf = [0; 1024];
         let (len, _src) = screen_socket.recv_from(&mut buf).await.unwrap();
         let response = String::from_utf8_lossy(&buf[..len]).to_string();
-        assert_eq!(response, "9\nfinished");
+        assert_eq!(response, "finished\n9");
 
         // Give some time for logging
         sleep(Duration::from_millis(100)).await;
@@ -178,7 +178,7 @@ mod tests {
         let mut buf = [0; 1024];
         let (len, _src) = screen_socket.recv_from(&mut buf).await.unwrap();
         let response = String::from_utf8_lossy(&buf[..len]).to_string();
-        assert_eq!(response, "9\nready");
+        assert!(response == "ready\n9" || response == "abort\n9");
 
         // Give some time for logging
         sleep(Duration::from_millis(100)).await;

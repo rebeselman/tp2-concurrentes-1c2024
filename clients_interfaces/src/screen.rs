@@ -107,7 +107,7 @@ impl Screen {
                 Err(e) => println!("[SCREEN {}] Error processing orders: {:?}", id, e),
             }
             match clone.process_orders_from_down_screen() {
-                Ok(_) => println!("Screen [{}] finished its work", id),
+                Ok(_) => {},
                 Err(e) => println!(
                     "[SCREEN {}] Error processing orders from down screen: {:?}",
                     id, e
@@ -197,7 +197,7 @@ impl Screen {
         self.log
             .insert(order.id(), OrderState::Wait(Instant::now()));
         let order_serialized = serde_json::to_vec(order)?;
-        println!("[SCREEN {}]Preparing order: {:?}", self.id, order.id());
+        println!("[SCREEN {}] Preparing order: {:?}", self.id, order.id());
         let mut message: Vec<u8> = b"prepare\n".to_vec();
         message.extend_from_slice(&order_serialized);
         if self.broadcast_and_wait(&message, OrderState::Ready, order)?{
@@ -272,7 +272,6 @@ impl Screen {
             let mut responses = self.responses.0.lock().map_err(|e| e.to_string())?;
             *responses = vec![None; STAKEHOLDERS];
         }
-        println!("[SCREEN {} ]Sending message", self.id);
         self.socket.send_to(message, PAYMENT_GATEWAY_IP)?;
         self.socket.send_to(message, self.order_management_ip)?;
         let (lock, cvar) = &*self.responses;
@@ -385,7 +384,7 @@ impl Screen {
         screen_id: usize,
         last_order: Option<usize>,
     ) -> Result<(), Box<dyn Error>> {
-        println!("[SCREEN{}] processing PONG from {}", self.id, screen_id);
+        println!("[SCREEN {}] processing PONG from {}", self.id, screen_id);
         let (lock, cvar) = &*self.screen_in_charge_state;
         let mut responses = lock.lock().map_err(|e| e.to_string())?;
         *responses = Some(ScreenState::Active(last_order));
@@ -398,7 +397,7 @@ impl Screen {
         let responses = lock.lock().map_err(|e| e.to_string())?;
         // check if my assigned screen is down
         if let Some(ScreenState::Down(last_order)) = *responses {
-            println!("Screen {} is down", self.screen_in_charge);
+            println!("[SCREEN {}] is down", self.screen_in_charge);
             drop(responses);
             if let Some(order_id) = last_order {
                 // I should take the orders that were being processed by that screen
@@ -532,7 +531,7 @@ impl Handler<ScreenMessage> for Screen {
         match msg {
             ScreenMessage::Ping { screen_id } => {
                 println!(
-                    "[SCREEN{}] received PING MESSAGE FROM {}",
+                    "[SCREEN {}] received PING MESSAGE FROM {}",
                     self.id, screen_id
                 );
                 let response = ScreenMessage::Pong {
@@ -542,18 +541,19 @@ impl Handler<ScreenMessage> for Screen {
 
                 self.send_message_to_screen(screen_id, response)
                     .unwrap_or_else(|e| eprintln!("Error sending pong: {:?}", e));
+
             }
             ScreenMessage::Pong {
                 screen_id,
                 last_order,
             } => {
-                println!("SCREEN {} received PONG from SCREEN {}", self.id, screen_id);
+                println!("[SCREEN {}] received PONG from SCREEN: {}", self.id, screen_id);
                 self.process_pong(screen_id, last_order)
                     .unwrap_or_else(|e| eprintln!("Error processing pong: {:?}", e));
             }
             ScreenMessage::Finished { screen_id } => {
                 println!(
-                    "SCREEN {} received FINISHED message from SCREEN {}",
+                    "[SCREEN {}] received FINISHED message from SCREEN {}",
                     self.id, screen_id
                 );
                 self.process_finished_message().unwrap_or_else(|e| {

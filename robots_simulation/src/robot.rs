@@ -625,3 +625,435 @@ impl StreamHandler<io::Result<(usize, Vec<u8>, SocketAddr)>> for Robot {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::net::{IpAddr, Ipv4Addr};
+    use std::sync::Arc;
+    use orders::generate_orders;
+    use crate::coordinator_messages::CoordinatorMessage;
+    use super::*;
+
+    #[actix_rt::test]
+    async fn test_new_robot() {
+        let robot_id = 1;
+        let socket = Arc::new(UdpSocket::bind("127.0.0.1:0").await.unwrap());
+        let coordinator_addr = "127.0.0.1:8080".to_string();
+        let is_coordinator = false;
+        let coordinator_id = 2;
+
+        let robot = Robot::new(robot_id, socket, coordinator_addr.clone(), is_coordinator, coordinator_id);
+        let robot_peers = (0..NUMBER_ROBOTS).filter(|&id| id != robot_id)
+            .map(|id| (format!("127.0.0.1:809{}", id), PeerStatus { last_pong: None, ping_attempts: 0 }))
+            .collect();
+
+        assert_eq!(robot.robot_id, robot_id);
+        assert_eq!(robot.coordinator_addr, coordinator_addr);
+        assert_eq!(robot.is_coordinator, is_coordinator);
+        assert_eq!(robot.coordinator_id, Some(coordinator_id));
+        assert_eq!(robot.state, RobotState::Idle);
+        assert_eq!(robot.order_screen_addr, None);
+        assert_eq!(robot.coordinator, None);
+        assert_eq!(robot.peers, robot_peers);
+        assert_eq!(robot.election_state, ElectionState::None);
+        assert_eq!(robot.last_request_time, None);
+    }
+
+    #[actix_rt::test]
+    async fn test_make_request() {
+        let robot_id = 1;
+        let socket = Arc::new(UdpSocket::bind("127.0.0.1:0").await.unwrap());
+        let coordinator_addr = "127.0.0.1:8080".to_string();
+        let is_coordinator = false;
+        let coordinator_id = 2;
+        let mut flavors = HashMap::new();
+        flavors.insert(IceCreamFlavor::Vanilla, 20);
+        flavors.insert(IceCreamFlavor::Chocolate, 10);
+        let addr: SocketAddr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 0);
+
+        let robot = Robot::new(robot_id, socket, coordinator_addr.clone(), is_coordinator, coordinator_id);
+
+        let request = RobotResponse::AccessRequest { robot_id, flavors, addr };
+        let result = robot.make_request(&request);
+
+        assert!(result.is_ok());
+    }
+
+    #[actix_rt::test]
+    async fn test_process_order() {
+        let robot_id = 1;
+        let socket = Arc::new(UdpSocket::bind("127.0.0.1:0").await.unwrap());
+        let coordinator_addr = "127.0.0.1:8080".to_string();
+        let is_coordinator = false;
+        let coordinator_id = 2;
+
+        let mut robot = Robot::new(robot_id, socket, coordinator_addr.clone(), is_coordinator, coordinator_id);
+
+        let mut rng = rand::thread_rng();
+        let order = generate_orders::create_order_with_id(&mut rng, 1).unwrap();
+        let result = robot.process_order(&order);
+
+        assert!(result.is_ok());
+        assert_eq!(robot.state, RobotState::WaitingForAccess(order.clone(), order.amounts_for_all_flavors()));
+    }
+
+    #[actix_rt::test]
+    async fn test_request_access() {
+        let robot_id = 1;
+        let socket = Arc::new(UdpSocket::bind("127.0.0.1:0").await.unwrap());
+        let coordinator_addr = "127.0.0.1:8080".to_string();
+        let is_coordinator = false;
+        let coordinator_id = 2;
+
+        let mut robot = Robot::new(robot_id, socket, coordinator_addr.clone(), is_coordinator, coordinator_id);
+
+        let mut rng = rand::thread_rng();
+        let order = generate_orders::create_order_with_id(&mut rng, 1).unwrap();
+        let flavors = order.amounts_for_all_flavors();
+        let result = robot.request_access(&order, &flavors);
+
+        assert!(result.is_ok());
+        assert_eq!(robot.state, RobotState::WaitingForAccess(order.clone(), flavors.clone()));
+    }
+
+    #[actix_rt::test]
+    async fn test_release_access() {
+        let robot_id = 1;
+        let socket = Arc::new(UdpSocket::bind("127.0.0.1:0").await.unwrap());
+        let coordinator_addr = "127.0.0.1:8080".to_string();
+        let is_coordinator = false;
+        let coordinator_id = 2;
+
+        let mut robot = Robot::new(robot_id, socket, coordinator_addr.clone(), is_coordinator, coordinator_id);
+
+        let flavor = IceCreamFlavor::Vanilla;
+        let result = robot.release_access(flavor);
+
+        assert!(result.is_ok());
+    }
+
+    #[actix_rt::test]
+    async fn test_send_ping() {
+        let robot_id = 1;
+        let socket = Arc::new(UdpSocket::bind("127.0.0.1:0").await.unwrap());
+        let coordinator_addr = "127.0.0.1:8080".to_string();
+        let is_coordinator = false;
+        let coordinator_id = 2;
+
+        let mut robot = Robot::new(robot_id, socket, coordinator_addr.clone(), is_coordinator, coordinator_id);
+
+        robot.send_ping();
+        // Assert that the ping message is sent to all peers
+    }
+
+    #[actix_rt::test]
+    async fn test_ping_all_peers() {
+        let robot_id = 1;
+        let socket = Arc::new(UdpSocket::bind("127.0.0.1:0").await.unwrap());
+        let coordinator_addr = "127.0.0.1:8080".to_string();
+        let is_coordinator = false;
+        let coordinator_id = 2;
+
+        let mut robot = Robot::new(robot_id, socket, coordinator_addr.clone(), is_coordinator, coordinator_id);
+
+        let mut message: Vec<u8> = b"ping\n".to_vec();
+        let ping_message = PingMessage::Ping;
+        let ping_serialized = serde_json::to_vec(&ping_message).unwrap();
+        message.extend_from_slice(&ping_serialized);
+
+        robot.peers.insert(coordinator_addr.clone(), PeerStatus{ last_pong: Some(Instant::now()), ping_attempts: 0 });
+        robot.ping_all_peers(&mut message);
+        // Assert that the ping message is sent to all peers
+    }
+
+    #[actix_rt::test]
+    async fn test_check_peers_status() {
+        let robot_id = 1;
+        let socket = Arc::new(UdpSocket::bind("127.0.0.1:0").await.unwrap());
+        let coordinator_addr = "127.0.0.1:8080".to_string();
+        let is_coordinator = false;
+        let coordinator_id = 2;
+
+        let mut robot = Robot::new(robot_id, socket, coordinator_addr.clone(), is_coordinator, coordinator_id);
+
+        robot.peers.insert(coordinator_addr.clone(), PeerStatus{ last_pong: Some(Instant::now()), ping_attempts: 0 });
+        robot.check_peers_status();
+        // Assert that the status of peers is checked and updated accordingly
+    }
+
+    #[actix_rt::test]
+    async fn test_check_coordinator_status() {
+        let robot_id = 1;
+        let socket = Arc::new(UdpSocket::bind("127.0.0.1:0").await.unwrap());
+        let coordinator_addr = "127.0.0.1:8080".to_string();
+        let is_coordinator = false;
+        let coordinator_id = 2;
+
+        let mut robot = Robot::new(robot_id, socket, coordinator_addr.clone(), is_coordinator, coordinator_id);
+
+        robot.peers.insert(coordinator_addr.clone(), PeerStatus{ last_pong: Some(Instant::now()), ping_attempts: 0 });
+        robot.check_coordinador_status();
+        // Assert that the coordinator status is checked and updated accordingly
+    }
+
+    #[actix_rt::test]
+    async fn test_initiate_election() {
+        let robot_id = 1;
+        let socket = Arc::new(UdpSocket::bind("127.0.0.1:0").await.unwrap());
+        let coordinator_addr = "127.0.0.1:8080".to_string();
+        let is_coordinator = false;
+        let coordinator_id = 2;
+
+        let mut robot = Robot::new(robot_id, socket, coordinator_addr.clone(), is_coordinator, coordinator_id);
+
+        robot.peers.insert(coordinator_addr.clone(), PeerStatus{ last_pong: Some(Instant::now()), ping_attempts: 0 });
+        robot.initiate_election();
+        // Assert that the election is initiated and messages are sent to all peers
+    }
+
+    #[actix_rt::test]
+    async fn test_check_election_results() {
+        let robot_id = 1;
+        let socket = Arc::new(UdpSocket::bind("127.0.0.1:0").await.unwrap());
+        let coordinator_addr = "127.0.0.1:8080".to_string();
+        let is_coordinator = false;
+        let coordinator_id = 2;
+
+        let mut robot = Robot::new(robot_id, socket, coordinator_addr.clone(), is_coordinator, coordinator_id);
+
+        robot.election_state = ElectionState::Candidate;
+        robot.check_election_results();
+        // Assert that the election results are checked and appropriate actions are taken
+    }
+
+    #[actix_rt::test]
+    async fn test_process_allowed_access() {
+        let robot_id = 1;
+        let socket = Arc::new(UdpSocket::bind("127.0.0.1:0").await.unwrap());
+        let coordinator_addr = "127.0.0.1:8080".to_string();
+        let is_coordinator = false;
+        let coordinator_id = 2;
+
+        let mut robot = Robot::new(robot_id, socket, coordinator_addr.clone(), is_coordinator, coordinator_id);
+
+        let flavor = IceCreamFlavor::Vanilla;
+        let mut rng = rand::thread_rng();
+        let order = generate_orders::create_order_with_id(&mut rng, 1).unwrap();
+        let flavors = order.amounts_for_all_flavors();
+        robot.state = RobotState::WaitingForAccess(order, flavors);
+        let result = robot.process_allowed_access(flavor);
+
+        assert!(result.is_ok());
+        // Assert that the robot processes the allowed access and updates its state accordingly
+    }
+
+    #[actix_rt::test]
+    async fn test_process_denied_access() {
+        let robot_id = 1;
+        let socket = Arc::new(UdpSocket::bind("127.0.0.1:0").await.unwrap());
+        let coordinator_addr = "127.0.0.1:8080".to_string();
+        let is_coordinator = false;
+        let coordinator_id = 2;
+
+        let mut robot = Robot::new(robot_id, socket, coordinator_addr.clone(), is_coordinator, coordinator_id);
+
+        let reason = "Flavor not available".to_string();
+        let result = robot.process_denied_access(reason);
+
+        assert!(result.is_ok());
+        // Assert that the robot processes the denied access and updates its state accordingly
+    }
+
+    #[actix_rt::test]
+    async fn test_process_received_order() {
+        let robot_id = 1;
+        let socket = Arc::new(UdpSocket::bind("127.0.0.1:0").await.unwrap());
+        let coordinator_addr = "127.0.0.1:8080".to_string();
+        let is_coordinator = false;
+        let coordinator_id = 2;
+
+        let mut robot = Robot::new(robot_id, socket, coordinator_addr.clone(), is_coordinator, coordinator_id);
+
+        let mut rng = rand::thread_rng();
+        let order = generate_orders::create_order_with_id(&mut rng, 1).unwrap();
+        let screen_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 9000);
+        let result = robot.process_received_order(order.clone(), &screen_addr);
+
+        assert!(result.is_ok());
+        // Assert that the robot processes the received order and updates its state accordingly
+    }
+
+    #[actix_rt::test]
+    async fn test_send_current_order_to_new_coordinator() {
+        let robot_id = 1;
+        let socket = Arc::new(UdpSocket::bind("127.0.0.1:0").await.unwrap());
+        let coordinator_addr = "127.0.0.1:8080".to_string();
+        let is_coordinator = false;
+        let coordinator_id = 2;
+
+        let mut robot = Robot::new(robot_id, socket, coordinator_addr.clone(), is_coordinator, coordinator_id);
+
+        let mut rng = rand::thread_rng();
+        let order = generate_orders::create_order_with_id(&mut rng, 1).unwrap();
+        robot.state = RobotState::ProcessingOrder(order);
+        let result = robot.send_current_order_to_new_coordinator();
+
+        assert!(result.is_ok());
+        // Assert that the current order is sent to the new coordinator
+    }
+
+    #[actix_rt::test]
+    async fn test_send_idle_message() {
+        let robot_id = 1;
+        let socket = Arc::new(UdpSocket::bind("127.0.0.1:0").await.unwrap());
+        let coordinator_addr = "127.0.0.1:8080".to_string();
+        let is_coordinator = false;
+        let coordinator_id = 2;
+
+        let mut robot = Robot::new(robot_id, socket, coordinator_addr.clone(), is_coordinator, coordinator_id);
+
+        let result = robot.send_idle_message();
+
+        assert!(result.is_ok());
+        // Assert that the idle message is sent to the coordinator
+    }
+
+    #[actix_rt::test]
+    async fn test_send_order_in_process_message() {
+        let robot_id = 1;
+        let socket = Arc::new(UdpSocket::bind("127.0.0.1:0").await.unwrap());
+        let coordinator_addr = "127.0.0.1:8080".to_string();
+        let is_coordinator = false;
+        let coordinator_id = 2;
+
+        let mut robot = Robot::new(robot_id, socket, coordinator_addr.clone(), is_coordinator, coordinator_id);
+
+        let mut rng = rand::thread_rng();
+        let order = generate_orders::create_order_with_id(&mut rng, 1).unwrap();
+        robot.order_screen_addr = Some(SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 9000));
+        let result = robot.send_order_in_process_message(&order);
+
+        assert!(result.is_ok());
+        // Assert that the order in process message is sent to the screen
+    }
+
+    #[actix_rt::test]
+    async fn test_abort_order() {
+        let robot_id = 1;
+        let socket = Arc::new(UdpSocket::bind("127.0.0.1:0").await.unwrap());
+        let coordinator_addr = "127.0.0.1:8080".to_string();
+        let is_coordinator = false;
+        let coordinator_id = 2;
+
+        let mut robot = Robot::new(robot_id, socket, coordinator_addr.clone(), is_coordinator, coordinator_id);
+
+        let mut rng = rand::thread_rng();
+        let order = generate_orders::create_order_with_id(&mut rng, 1).unwrap();
+        let result = robot.abort_order(robot_id, order);
+
+        assert!(result.is_ok());
+        // Assert that the order is aborted and appropriate actions are taken
+    }
+
+    #[actix_rt::test]
+    async fn test_continue_order() {
+        let robot_id = 1;
+        let socket = Arc::new(UdpSocket::bind("127.0.0.1:0").await.unwrap());
+        let coordinator_addr = "127.0.0.1:8080".to_string();
+        let is_coordinator = false;
+        let coordinator_id = 2;
+
+        let mut robot = Robot::new(robot_id, socket, coordinator_addr.clone(), is_coordinator, coordinator_id);
+
+        let mut rng = rand::thread_rng();
+        let order = generate_orders::create_order_with_id(&mut rng, 1).unwrap();
+        robot.state = RobotState::ProcessingOrder(order);
+        let result = robot.continue_order();
+
+        assert!(result.is_ok());
+        // Assert that the order is continued and appropriate actions are taken
+    }
+
+    #[actix_rt::test]
+    async fn test_handle_as_coordinator() {
+        let robot_id = 2;
+        let socket = Arc::new(UdpSocket::bind("127.0.0.1:0").await.unwrap());
+        let coordinator_addr = "127.0.0.1:8080".to_string();
+        let is_coordinator = true;
+
+        let coordinator = Coordinator::new(socket.clone(), robot_id).start();
+        let mut robot = Robot::new(robot_id, socket, coordinator_addr.clone(), is_coordinator, robot_id);
+        let message_type = "ping";
+        let parts = "content".split(' ');
+        let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 9000);
+
+        robot.coordinator = Some(coordinator);
+        robot.handle_as_coordinator(message_type, parts, addr);
+        // Assert that the message is handled as a coordinator and appropriate actions are taken
+    }
+
+    #[actix_rt::test]
+    async fn test_handle_election_message() {
+        let robot_id = 1;
+        let socket = Arc::new(UdpSocket::bind("127.0.0.1:0").await.unwrap());
+        let coordinator_addr = "127.0.0.1:8080".to_string();
+        let is_coordinator = false;
+        let coordinator_id = 2;
+
+        let mut robot = Robot::new(robot_id, socket, coordinator_addr.clone(), is_coordinator, coordinator_id);
+        let message = ElectionMessage::Election { robot_id: 2 };
+
+        robot.handle_election_message(message);
+        // Assert that the election message is handled and appropriate actions are taken
+    }
+
+    #[actix_rt::test]
+    async fn test_handle_ping_message() {
+        let robot_id = 1;
+        let socket = Arc::new(UdpSocket::bind("127.0.0.1:0").await.unwrap());
+        let coordinator_addr = "127.0.0.1:8080".to_string();
+        let is_coordinator = false;
+        let coordinator_id = 2;
+
+        let mut robot = Robot::new(robot_id, socket, coordinator_addr.clone(), is_coordinator, coordinator_id);
+        let message = PingMessage::Ping;
+        let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 9000);
+
+        robot.handle_ping_message(message, addr);
+        // Assert that the ping message is handled and appropriate actions are taken
+    }
+
+    #[actix_rt::test]
+    async fn test_update_last_pong() {
+        let robot_id = 1;
+        let socket = Arc::new(UdpSocket::bind("127.0.0.1:0").await.unwrap());
+        let coordinator_addr = "127.0.0.1:8080".to_string();
+        let is_coordinator = false;
+        let coordinator_id = 2;
+
+        let mut robot = Robot::new(robot_id, socket, coordinator_addr.clone(), is_coordinator, coordinator_id);
+        let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 9000);
+
+        robot.peers.insert(addr.to_string(), PeerStatus{last_pong: None, ping_attempts: 0});
+        robot.update_last_pong(&addr);
+        // Assert that the last pong time is updated for the peer
+    }
+
+    #[actix_rt::test]
+    async fn test_handle_as_robot() {
+        let robot_id = 1;
+        let socket = Arc::new(UdpSocket::bind("127.0.0.1:0").await.unwrap());
+        let coordinator_addr = "127.0.0.1:8080".to_string();
+        let is_coordinator = false;
+        let coordinator_id = 2;
+        let screen_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 0);
+
+        let mut robot = Robot::new(robot_id, socket, coordinator_addr.clone(), is_coordinator, coordinator_id);
+        let mut rng = rand::thread_rng();
+        let order = generate_orders::create_order_with_id(&mut rng, 1).unwrap();
+        let message = CoordinatorMessage::OrderReceived {robot_id, order, screen_addr};
+
+        robot.handle_as_robot(message);
+        // Assert that the message is handled as a robot and appropriate actions are taken
+    }
+}

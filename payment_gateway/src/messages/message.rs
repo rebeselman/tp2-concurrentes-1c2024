@@ -16,10 +16,8 @@ pub trait Message: Send + Sync {
 
     /// Returns a vector of bytes representing the respond message.
     /// The format will be:
-    /// {order_id}\n{message_type} -> DEPRECATED
-    /// {message_type}\n{order_id}
+    /// `{message_type}\n{order_id}`.
     fn process(&self) -> Vec<u8> {
-        //format!("{}\n{}", self.get_order().id(), self.get_response_type()).into_bytes()
         format!("{}\n{}", self.get_response_type(), self.get_order().id()).into_bytes()
     }
 

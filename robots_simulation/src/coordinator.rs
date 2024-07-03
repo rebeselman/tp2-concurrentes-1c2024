@@ -510,14 +510,9 @@ impl Handler<RobotResponse> for Coordinator {
 mod tests {
     use std::sync::Arc;
     use std::net::{IpAddr, Ipv4Addr};
-    use orders::container_type::ContainerType;
-    use orders::item::Item;
-    use rand::distributions::Alphanumeric;
-    use rand::prelude::IndexedRandom;
-    use rand::Rng;
+    use orders::generate_orders;
     use tokio::net::UdpSocket;
     use tokio::sync::Mutex as AsyncMutex;
-
     use super::*;
 
     // Helper function to create a mock UdpSocket bound to an arbitrary available port
@@ -530,36 +525,6 @@ mod tests {
     async fn setup_coordinator() -> Coordinator {
         let socket = create_mock_socket().await;
         Coordinator::new(socket, 999)
-    }
-
-    fn create_order() -> Order {
-        let mut rng = rand::thread_rng();
-        let order_id = rng.gen_range(0..1000);
-        let client_id = rng.gen_range(0..1000);
-        let credit_card: String = (0..16).map(|_| rng.sample(Alphanumeric) as char).collect();
-        let mut items = Vec::new();
-        for _ in 0..rng.gen_range(1..10) {
-            // choose a random container
-
-            let container: ContainerType = ContainerType::values()
-                .choose(&mut rng)
-                .cloned() // Clone the value to get an Option<ContainerType> instead of Option<&ContainerType>
-                .ok_or_else(|| String::from("Error choosing random container")).unwrap();
-            let units = rng.gen_range(1..5);
-            let number_of_flavors = rng.gen_range(1..3);
-            // vector of ice cream flavors
-            let flavors: Vec<IceCreamFlavor> = (0..number_of_flavors)
-                .map(|_| {
-                    IceCreamFlavor::values()
-                        .choose(&mut rng)
-                        .ok_or_else(|| String::from("Error choosing flavors"))
-                        .copied()
-                })
-                .collect::<Result<Vec<IceCreamFlavor>, String>>().unwrap_or_else(|_| vec![]);
-
-            items.push(Item::new(container, units, flavors));
-        }
-        Order::new(order_id, client_id, credit_card, items)
     }
 
     #[actix_rt::test]
@@ -575,7 +540,8 @@ mod tests {
     async fn test_register_order() {
         let mut coordinator = setup_coordinator().await;
         let screen_addr = "127.0.0.1:0".parse().unwrap();
-        let order = create_order();
+        let mut rng = rand::thread_rng();
+        let order = generate_orders::create_order_with_id(&mut rng, 1).unwrap();
         let id = order.id();
 
         coordinator.register_order(screen_addr, &order);
@@ -600,7 +566,8 @@ mod tests {
     async fn test_assign_order_to_robot() {
         let mut coordinator = setup_coordinator().await;
         let screen_addr = "127.0.0.1:0".parse().unwrap();
-        let order = create_order();
+        let mut rng = rand::thread_rng();
+        let order = generate_orders::create_order_with_id(&mut rng, 1).unwrap();
         coordinator.register_order(screen_addr, &order);
 
         coordinator.assign_order_to_robot(order.clone(), &screen_addr).await;
@@ -614,7 +581,8 @@ mod tests {
     async fn test_order_completed() {
         let mut coordinator = setup_coordinator().await;
         let screen_addr = "127.0.0.1:0".parse().unwrap();
-        let order = create_order();
+        let mut rng = rand::thread_rng();
+        let order = generate_orders::create_order_with_id(&mut rng, 1).unwrap();
         coordinator.register_order(screen_addr, &order);
 
         coordinator.order_completed(order.id()).await;
@@ -628,12 +596,28 @@ mod tests {
         let mut coordinator = setup_coordinator().await;
         let addr: SocketAddr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080);
         let robot_id = 1;
-        let flavors = vec![IceCreamFlavor::Vanilla];
-        let flavors = flavors.into_iter().map(|flavor| (flavor, 1)).collect();
+        let order = generate_orders::create_order_with_id(&mut rand::thread_rng(), 1).unwrap();
+        coordinator.register_order(addr, &order);
+        coordinator.robot_states.insert(robot_id, Arc::new(AsyncMutex::new(RobotStateForCoordinator::Busy { order_id: order.id() })));
+        let mut flavors = HashMap::new();
+        flavors.insert(IceCreamFlavor::Vanilla, 50);
 
         let access_granted = coordinator.check_if_flavor_available(robot_id, &flavors, addr).await;
 
         assert!(access_granted);
+    }
+
+    #[actix_rt::test]
+    async fn test_check_if_flavor_available_fails_order_not_registered() {
+        let mut coordinator = setup_coordinator().await;
+        let addr: SocketAddr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080);
+        let robot_id = 1;
+        let mut flavors = HashMap::new();
+        flavors.insert(IceCreamFlavor::Vanilla, 50);
+
+        let access_granted = coordinator.check_if_flavor_available(robot_id, &flavors, addr).await;
+
+        assert_eq!(access_granted, false);
     }
 
     #[actix_rt::test]
@@ -672,7 +656,8 @@ mod tests {
     async fn test_commit_received() {
         let mut coordinator = setup_coordinator().await;
         let screen_addr = "127.0.0.1:0".parse().unwrap();
-        let order = create_order();
+        let mut rng = rand::thread_rng();
+        let order = generate_orders::create_order_with_id(&mut rng, 1).unwrap();
         coordinator.register_order(screen_addr, &order);
 
         coordinator.commit_received(&order).await;
@@ -685,7 +670,8 @@ mod tests {
     async fn test_abort_order() {
         let mut coordinator = setup_coordinator().await;
         let screen_addr = "127.0.0.1:0".parse().unwrap();
-        let order = create_order();
+        let mut rng = rand::thread_rng();
+        let order = generate_orders::create_order_with_id(&mut rng, 1).unwrap();
         coordinator.register_order(screen_addr, &order);
 
         coordinator.abort_order(order.clone());
@@ -697,7 +683,8 @@ mod tests {
     async fn test_reassign_order() {
         let mut coordinator = setup_coordinator().await;
         let screen_addr = "127.0.0.1:0".parse().unwrap();
-        let order = create_order();
+        let mut rng = rand::thread_rng();
+        let order = generate_orders::create_order_with_id(&mut rng, 1).unwrap();
         coordinator.register_order(screen_addr, &order);
 
         coordinator.reassign_order(order.clone()).await;
@@ -709,7 +696,8 @@ mod tests {
     async fn test_fix_order() {
         let mut coordinator = setup_coordinator().await;
         let robot_id = 1;
-        let order = create_order();
+        let mut rng = rand::thread_rng();
+        let order = generate_orders::create_order_with_id(&mut rng, 1).unwrap();
         let screen_addr = "127.0.0.1:0".parse().unwrap();
         coordinator.robot_states.insert(robot_id, Arc::new(AsyncMutex::new(RobotStateForCoordinator::Busy { order_id: order.id() })));
         coordinator.register_order(screen_addr, &order);
@@ -723,7 +711,8 @@ mod tests {
     #[actix_rt::test]
     async fn test_send_ready_message() {
         let mut coordinator = setup_coordinator().await;
-        let order = create_order();
+        let mut rng = rand::thread_rng();
+        let order = generate_orders::create_order_with_id(&mut rng, 1).unwrap();
         let addr: SocketAddr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8095);
 
         coordinator.send_ready_message(&order, &addr).await;
@@ -735,7 +724,8 @@ mod tests {
     async fn test_handler_screen_message_order_request() {
         let coordinator = setup_coordinator().await.start();
         let screen_addr = "127.0.0.1:0".parse().unwrap();
-        let order = create_order();
+        let mut rng = rand::thread_rng();
+        let order = generate_orders::create_order_with_id(&mut rng, 1).unwrap();
 
         coordinator.send(ScreenMessage::OrderRequest { order: order.clone(), screen_addr }).await.unwrap();
 
@@ -745,7 +735,8 @@ mod tests {
     #[actix_rt::test]
     async fn test_handler_screen_message_commit_received() {
         let coordinator = setup_coordinator().await.start();
-        let order = create_order();
+        let mut rng = rand::thread_rng();
+        let order = generate_orders::create_order_with_id(&mut rng, 1).unwrap();
 
         coordinator.send(ScreenMessage::CommitReceived { order: order.clone() }).await.unwrap();
 
@@ -755,7 +746,8 @@ mod tests {
     #[actix_rt::test]
     async fn test_handler_screen_message_abort() {
         let coordinator = setup_coordinator().await.start();
-        let order = create_order();
+        let mut rng = rand::thread_rng();
+        let order = generate_orders::create_order_with_id(&mut rng, 1).unwrap();
 
         coordinator.send(ScreenMessage::Abort { order: order.clone() }).await.unwrap();
 
@@ -767,9 +759,8 @@ mod tests {
         let coordinator = setup_coordinator().await.start();
         let addr: SocketAddr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 0);
         let robot_id = 1;
-        let flavors = vec![IceCreamFlavor::Vanilla];
-        let flavors = flavors.into_iter().map(|flavor| (flavor, 1)).collect();
-
+        let order = generate_orders::create_order_with_id(&mut rand::thread_rng(), 1).unwrap();
+        let flavors = order.amounts_for_all_flavors();
         coordinator.send(RobotResponse::AccessRequest { robot_id, flavors, addr }).await.unwrap();
 
         // No assertion, just check that no panic occurs
@@ -791,7 +782,8 @@ mod tests {
     async fn test_handler_robot_response_finish_request() {
         let coordinator = setup_coordinator().await.start();
         let robot_id = 2;
-        let order = create_order();
+        let mut rng = rand::thread_rng();
+        let order = generate_orders::create_order_with_id(&mut rng, 1).unwrap();
 
         coordinator.send(RobotResponse::OrderFinished { robot_id, order }).await.unwrap();
 

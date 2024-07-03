@@ -36,9 +36,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
             }
         }
     }
+    println!("Screen {} finished COMPLETELY", screen.id());
 
-
-
+    
     Ok(())
 
 }

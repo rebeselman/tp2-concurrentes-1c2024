@@ -8,9 +8,13 @@
 
 [![Review Assignment Due Date](https://classroom.github.com/assets/deadline-readme-button-24ddc0f5d75046c5622901739e7c5dd533143b0c8e959d652212380cedb1ea36.svg)](https://classroom.github.com/a/PKo6zpFB)
 
+<!-- TODO: insertar link -->
+[Link al video presentación]()
+
 ## Índice
 - [GridRust](#gridrust)
   - [Índice](#índice)
+  - [Ejecución](#ejecución)
   - [Diseño](#diseño)
     - [Interfaces de Clientes](#interfaces-de-clientes)
       - [Resiliencia en las pantallas](#resiliencia-en-las-pantallas)
@@ -18,11 +22,49 @@
       - [Resiliencia en los robots](#resiliencia-en-los-robots)
     - [Gateway de Pagos](#gateway-de-pagos)
   - [Comunicación entre procesos](#comunicación-entre-procesos)
-    - [Protocolos de mensajes](#protocolos-de-mensajes)
-      - [Mensajes de Interfaces de Clientes a Gestión de Pedidos y a Gateway de Pagos](#mensajes-de-interfaces-de-clientes-a-gestión-de-pedidos-y-a-gateway-de-pagos)
-      - [Mensajes de Gestión de Pedidos y Gateway de Pagos a Interfaces de Clientes](#mensajes-de-gestión-de-pedidos-y-gateway-de-pagos-a-interfaces-de-clientes)
+    - [Protocolos de comunicación](#protocolos-de-comunicación)
+      - [Mensajes de Interfaces de Clientes a Gateway de Pagos y a Gestión de Pedidos](#mensajes-de-interfaces-de-clientes-a-gateway-de-pagos-y-a-gestión-de-pedidos)
+    - [Mensajes entre Pantallas](#mensajes-entre-pantallas)
+      - [Mensajes de Gateway de Pagos y Gestión de Pedidos a Interfaces de Clientes](#mensajes-de-gateway-de-pagos-y-gestión-de-pedidos-a-interfaces-de-clientes)
+    - [Cómo ejecutar las aplicaciones](#cómo-ejecutar-las-aplicaciones)
+      - [Gestión de Pedidos](#gestión-de-pedidos-1)
+      - [Interfaces de Clientes](#interfaces-de-clientes-1)
+      - [Mensajes entre Robots y Coordinador](#mensajes-entre-robots-y-coordinador)
   - [Modelo de dominio](#modelo-de-dominio)
   - [Supuestos](#supuestos)
+  - [Cambios al diseño inicial](#cambios-al-diseño-inicial)
+
+## Ejecución
+Para ejecutar las aplicaciones se deberán ingresar los siguientes comandos en distintas terminales desde el root del repositorio:
+- **Interfaces de Clientes**
+  - Para ejecutar **todas** las interfaces:
+  ```sh 
+  cd clients_interfaces
+  cargo run --bin clients_interfaces
+  ```
+  - Para ejecutar una sola interfaz (con $id = {0, 1, 2}$):
+  ```sh 
+  cd clients_interfaces
+  cargo run --bin screen <id>
+  ```
+- **Gestión de Pedidos**
+  - Para ejecutar **todos** los robots:
+  ```sh 
+  cd robots_simulation
+  cargo run --bin robots_simulation
+  ```
+  - Para ejecutar un solo robot (con $id = {0, 1, 2, 3, 4}$):
+  ```sh 
+  cd robots_simulation
+  cargo run --bin robot <id> <coordinator_id>
+  ```
+  Si se ejecutan varios por separado, asignarles a todos el mismo _coordinator_id_.
+
+- **Gateway de Pagos**
+  ```sh 
+  cd payment_gateway
+  cargo run
+  ```
 
 ## Diseño
 Se tienen tres aplicaciones distintas que se comunican a través de sockets UDP:
@@ -33,21 +75,26 @@ Se tienen tres aplicaciones distintas que se comunican a través de sockets UDP:
 ![Diagrama del Proyecto](img/diagrams/C4_gridrust.drawio.png)
 
 ### Interfaces de Clientes
-Se modela cada interfaz de cliente o pantalla, la cual lee de un archivo pedidos simulados y los convierte en **órdenes de pedidos**. Luego, inicia una transacción por cada uno. En este caso, es un **pedido de helado**. Se plantea utilizar programación asincrónica para esperar por la respuesta y, mientras tanto, dar oportunidad a atender otro pedido. Se generan varias instancias (como distintos procesos) de esta aplicación para simular un número constante de pantallas en la heladería. Para llevar a cabo la transacción se plantea utilizar:
-- **Commit de dos fases**: Cada instancia actúa como **coordinador** del pedido que esté procesando. En este caso el compromiso es entregar el helado solicitado. Los pasos del algoritmo son:
+Se modela cada interfaz de cliente o pantalla, la cual lee de un archivo pedidos simulados y los convierte en **órdenes de pedidos**. Luego, inicia una transacción por cada uno. En este caso, es un **pedido de helado**. Se generan varias instancias (como distintos procesos) de esta aplicación para simular un número constante de pantallas en la heladería. Para llevar a cabo la transacción se plantea utilizar:
+- **Commit de dos fases**: Cada instancia actúa como **coordinador** del pedido que se encuentra procesando. En este caso el compromiso es entregar el helado solicitado. Los pasos del algoritmo son:
   1. El coordinador que ejecuta la orden de pedido escribe en su log _prepare_ indicando que inicia la preparación del pedido y le envía a Gateway de Pagos el mensaje _prepare_, para preguntar si puede capturar el pago.
   2. En el caso de pago capturado satisfactoriamente, envía _prepare_ a Gestión de Pedidos. De lo contrario aborta la transacción.
-  3. Si el pedido es preparado correctamente, el coordinador efectúa y finaliza el compromiso enviando un mensaje _commit_ al robot y al Gateway de Pagos para efectivizar el cobro. Caso contrario se aborta el pedido y se cancela el pago.
+  3. Si el pedido es preparado correctamente, el coordinador efectúa y finaliza el compromiso enviando un mensaje _commit_ a Gestión de Pedidos y al Gateway de Pagos para efectivizar el cobro. Caso contrario se aborta el pedido y se cancela el pago.
 
 #### Resiliencia en las pantallas
+- Para verificar el estado de cada pantalla, entre las mismas se envían mensajes de tipo _ping_ cada cierto tiempo para verificar que siguen procesando pedidos. En el mensaje _pong_ de respuesta se envía la información del último pedido completado. De esta forma, una pantalla puede tomar los pedidos de la caída continuando desde el pedido que corresponde. Se utiliza el modelo de actores para la comunicación entre las pantallas.
+- Cuando se detecta que una pantalla está caída, los pedidos que estaba manejando se reasignan a otra pantalla. Ya se tiene establecido qué pantalla se hace cargo de cual en caso de que se caiga alguna. 
 
-- Para verificar el estado de cada pantalla, se envían mensajes tipo _ping_ entre sí cada cierto tiempo para verificar que siguen procesando pedidos. En el mensaje _ping_ se envía información del último pedido completado. De esta forma, una pantalla puede tomar los pedidos de esa pantalla caída desde esa orden. Se utilizaría el modelo de actores para la comunicación entre las pantallas.
-- Cuando se detecta que una pantalla está caída, los pedidos que estaba manejando se reasignan a otra pantalla. Ya se tendría establecido qué pantalla se hace cargo de qué pantalla en caso de que se caiga alguna. Por ejemplo: tenemos las pantallas 0, 1, 2, 3. Si se cae la 0, se hace cargo la 1, si se cae la 1, se hace cargo la 2, si se cae la 3, se hace cargo la 0.
+  En particular, teniendo las pantallas 0, 1, 2, 3:
+  - Si se cae la 0, se hace cargo la 1.
+  - Si se cae la 1, se hace cargo la 2.
+  - Si se cae la 2, se hace cargo la 3.
+  - Si se cae la 3, se hace cargo la 0.
 
 ### Gestión de Pedidos
- Esta aplicación se comunica con **Interfaces de Clientes**, recibiendo órdenes de pedidos y respondiendo si el robot pudo preparar el pedido para su entrega. Se plantea utilizar las siguientes herramientas de concurrencia:
+ Esta aplicación se comunica con Interfaces de Clientes, recibiendo órdenes de pedidos y respondiendo si el robot asignado pudo preparar el pedido para su entrega. Se utilizan las siguientes herramientas de concurrencia:
 - **Modelo de actores** para los robots:
-Tienen como estado interno el contenedor que están empleando, en caso de que estén usando alguno. Los tipos de mensajes serán para solicitar un contenedor, liberarlo, y para otorgar o denegar su acceso. 
+Tienen como estado interno el contenedor que están empleando, en caso de que estén usando alguno. Los tipos de mensajes son para solicitar un contenedor, liberarlo, y para otorgar o denegar su acceso. 
 - **Algoritmo Centralizado** para sincronizar los accesos a los contenedores de helado por parte de los robots con optimización:
   - Se elige a un robot como coordinador.
   - Cada robot le envía al coordinador un vector con los contenedores (sabores) a los que necesita acceder.
@@ -73,10 +120,10 @@ Tienen como estado interno el contenedor que están empleando, en caso de que es
 - Cuando se cambia el coordinador, cada robot le manda al coordinador el pedido que estaba haciendo, junto con la pantalla que lo pidió. Luego, el coordinador nuevo le envía a cada pantalla de nuevo _ready_ para el pedido que pidió y se está haciendo.
 
 ### Gateway de Pagos
-Será una aplicación simple que _loguea_, tal como indica el enunciado, en un archivo. Se tendrá una sola instancia de la misma que se encargará de recibir mensajes _prepare_  del coordinador (que se encuentra en **Interfaces de Clientes**), preguntando si se puede capturar el pago (la tarjeta puede fallar con una probabilidad aleatoria). Su respuesta será _ready_ o _abort_ dependiendo el caso. Luego, si se logra entregar el pedido correctamente, se recibirá un mensaje _commit_ y se realizará el cobro efectivo.
+Se trata de una aplicación simple que _loguea_ en un archivo. Se tendrá una sola instancia de la misma que se encargará de recibir mensajes _prepare_  del coordinador (que se encuentra en Interfaces de Clientes), preguntando si se puede capturar el pago (la tarjeta puede fallar con una probabilidad aleatoria). Su respuesta será _ready_ o _abort_ dependiendo el caso. Luego, si se logra entregar el pedido correctamente, recibirá un mensaje _commit_ al que responderá con _finished_ y se realizará el cobro efectivo.
 
 ## Comunicación entre procesos
-Para asegurar una comunicación confiable entre los procesos usando sockets UDP, cada mensaje enviado esperará una respuesta del receptor. En caso de no recibir respuesta en un tiempo determinado, se considerará que se perdió el paquete y se reenviará el mensaje. Se utilizará un protocolo de comunicación simple, donde cada mensaje tendrá un formato específico.
+Para asegurar una comunicación confiable entre los procesos usando sockets UDP, cada mensaje enviado esperará una respuesta del receptor. En caso de no recibir respuesta en un tiempo determinado, se considerará que se perdió el paquete y se reenviará el mensaje. Se utilizarán protocolos de comunicación simples, donde cada mensaje tendrá un formato específico.
 
 A continuación se presentan diagramas de secuencia que muestran el intercambio de mensajes entre las entidades en distintos escenarios:
 
@@ -88,13 +135,18 @@ A continuación se presentan diagramas de secuencia que muestran el intercambio 
   
 ![Secuencia abort](img/diagrams/abort_sequences.png)
 
-### Protocolos de mensajes
-#### Mensajes de Interfaces de Clientes a Gestión de Pedidos y a Gateway de Pagos
-Las pantallas enviarán tanto a Gestión de Pedidos como a Gateway de Pagos mensajes con el siguiente formato:
+### Protocolos de comunicación
+#### Mensajes de Interfaces de Clientes a Gateway de Pagos y a Gestión de Pedidos
+Las pantallas enviarán tanto al Gateway de Pagos como a Gestión de Pedidos mensajes con el siguiente formato:
 
-					{mensaje}\n{payload}\0
+			{message_type}\n{payload}
      
-Donde el payload es la orden serializada en formato JSON:
+El tipo del mensaje es un string que puede ser:
+- `prepare`: Se envía al principio para iniciar la transacción por cada pedido.
+- `commit`: Si ambas entidades responden `ready` al mensaje anterior, se les envía este mensaje señalando que el pedido fue realizado correctamente. Le indica al Gateway de Pagos que efectivice el cobro.
+- `abort`: Si alguna de las entidades al recibir el `prepare` devuelve este mismo tipo de mensaje, se les envía a ambas indicando que la transacción fue abortada.
+
+El payload es el pedido serializado en formato JSON:
 ```
 pub struct Order {  
   order_id: usize,  
@@ -103,67 +155,42 @@ pub struct Order {
   items: Vec<Item>  
 }
 ```
-Se mantiene esta misma estructura a nivel global entre las tres aplicaciones.
 
-El mensaje puede ser de tres tipos:
-- Prepare: Se envía al principio a Gestión de Pedidos y a Gateway de Pagos.
-- Commit: Cuando se le entrega al cliente el helado se le envía a ambas aplicaciones.
-- Abort: Se envía en caso de que falle alguna de las partes de la transacción.
-Por lo tanto, se mantiene esta estructura a nivel global entre las tres aplicaciones
+### Mensajes entre Pantallas
+Las pantallas se comunicarán entre sí para garantizar que todas siguen activas mediante mensajes con el siguiente formato:
 
-### Mensaje entre Pantallas
-Las pantallas enviarán mensajes tipo Ping a la pantalla que tengan a cargo para verificar si sigue vigente:
+              "screen"\n{message_type}
 
-              {mensaje}\n{payload}
+El tipo de mensaje se encuentra representado en un enum llamado *ScreenMessage* que puede ser:
+- `ping`: lo envía una pantalla para verificar si la pantalla a su cargo sigue activa.
+- `pong`: Es la respuesta de la pantalla "pingueada" junto con el id de la última orden procesada.
+- `finished`: Indica que la pantalla finalizó el procesamiento de todos sus pedidos.
 
-Donde el mensaje puede ser de tipo *screen* y el payload es un enum llamado *ScreenMessage* que puede ser de tipo:
-- Ping: lo envía una pantalla para vertificar si las pantalla sigue activa.
-- Pong: Es la respuesta de la pantalla con el id de la última orden procesada.
-- Finished: Indica que la pantalla finalizo el procesamiento de todas las ordenes.
-
-#### Mensajes de Gestión de Pedidos y Gateway de Pagos a Interfaces de Clientes
+#### Mensajes de Gateway de Pagos y Gestión de Pedidos a Interfaces de Clientes
 Tanto el Gateway de Pagos como Gestión de Pedidos utilizarán el siguiente formato para el envío de mensajes:
-			
-   					{message}\n{payload}\0
-El payload es la _Order_ serializada en formato JSON.
+
+   			{message_type}\n{order_id}
 El mensaje podrá ser de tipo:
-- Ready: indica que se pudo realizar ya sea el pedido o la captura del pago.
-- Abort: indica que no se pudo preparar el pedido o que falló la tarjeta de crédito del cliente.
-- Finished: es la respuesta que se le da al cliente cuando se llega a la segunda fase de la transacción, es la respuesta al mensaje de **Commit**.
-- Keepalive: indica que se está intentando terminar el pedido de helado o la captura.
-
-### Cómo ejecutar las aplicaciones
-
-#### Gestión de Pedidos
-
-Se corre cada robot con:
-cargo run --bin robot n
-
-Al coordinador con:
-cargo run --bin coordinador
-
-#### Interfaces de Clientes
-
-Se ejecutan las pantallas con
-cargo run --bin clients_interfaces
+- `ready`: Como respuesta a `prepare` indica que se pudo realizar correctamente la captura del pago o el pedido dependiendo el caso.
+- `abort`: También como respuesta a `prepare` indica que falló la captura del pago o no se pudo preparar el pedido.
+- `finished`: Es la respuesta que se le da al mensaje `commit` cuando se llega a la segunda fase de la transacción.
+- `keepalive`: Se utiliza para indicar que la pantalla no está caída y está intentando terminar la preparación del pedido (solo lo envía Gestión de Pedidos).
 
 #### Mensajes entre Robots y Coordinador
-Para pedir y liberar el acceso a los contenedores de helado e indicarle al coordinador que se completó la orden, se utilizará el siguiente formate de mensaje: 
+Para pedir y liberar el acceso a los contenedores de helado e indicarle al coordinador que se completó la orden, se utilizará el siguiente formato de mensaje: 
 			
-   					{access}\n{payload}\0
+   					{access}\n{payload}
 
-El payload es un tipo de enum `RequestToCoordinator` serializado en formato JSON.
-El payload puede ser: 
+El payload es un tipo del enum `RequestToCoordinator` serializado en formato _JSON_ que puede ser: 
 - `SolicitarAcceso`: Incluye el id del robot y el vector de sabores a los que se pide acceso.
 - `LiberarAcceso`: Incluye el id del robot y el sabor de helado al que tenía acceso.
 - `OrdenTerminada`: Incluye el id del robot y la _Order_ completada serializada.
 
 El **coordinador**, para contestarle a los robots y asignar pedidos, utiliza el siguiente formato de mensaje: 
 
-   					{access}\n{payload}\0
+   				{access}\n{payload}
 
-El payload es un tipo de enum `Response` serializado en formato JSON.
-El payload puede ser: 
+El payload es un tipo del enum `Response` serializado en formato _JSON_ que puede ser: 
 - `AccesoConcedido`: Incluye el sabor de helado al que le dió acceso.
 - `AccesoDenegado`: Incluye la razón por la cual no le pudo dar acceso.
 - `AssignOrder`: Incluye el id del robot y la _Order_ asignada.
@@ -189,3 +216,9 @@ El payload puede ser:
 - En el caso de que un robot esté preparando un pedido y no haya más stock del gusto a servir, se desecha todo lo servido previamente y el pedido queda cancelado.
 - Los puertos de las pantallas y los robots son conocidos. 
 - El pago se captura aleatoriamente con una probabilidad de 0.9.
+
+## Cambios al diseño inicial
+- Optimización del algoritmo centralizado para cuando varios robots están ejecutando pedidos que comparten algún gusto pero no todos.
+- Protocolos de los mensajes: tipos y payloads.
+- Cada pantalla con su propio archivo en lugar de una cola centralizada de pedidos.
+- Implementación del modelo de actores en Interfaces de Clientes para la comunicación entre las mismas con el objetivo de que sean resilientes ([Resiliencia en las pantallas](#resiliencia-en-las-pantallas)).

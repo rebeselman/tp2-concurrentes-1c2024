@@ -1,6 +1,6 @@
 use std::process::{exit, Child, Command};
 
-use clients_interfaces::generate_orders;
+use orders::generate_orders;
 const NUMBER_SCREENS: u8 = 3;
 
 fn main() {

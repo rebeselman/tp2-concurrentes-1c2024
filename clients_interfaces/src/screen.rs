@@ -1,11 +1,11 @@
 //! Represents a screen of an ice cream local
 
 use actix::{Actor, Context, Handler};
+
 use orders::order::Order;
 use std::sync::MutexGuard;
 use std::{
     collections::HashMap,
-    env,
     error::Error,
     fs::File,
     io::{BufRead, BufReader},
@@ -16,7 +16,7 @@ use std::{
 };
 
 //use clients_interfaces::screen_message::ScreenMessage;
-use clients_interfaces::{
+use crate::{
     order_state::OrderState, screen_message::ScreenMessage, screen_state::ScreenState,
 };
 const TIMEOUT: Duration = Duration::from_secs(60);
@@ -40,12 +40,13 @@ const SCREENS: usize = 3;
 pub struct Screen {
     id: usize,
     log: HashMap<usize, OrderState>,
-    socket: UdpSocket,
-    responses: Arc<(Mutex<Vec<Option<OrderState>>>, Condvar)>,
+    pub socket: UdpSocket,
+    pub responses: Arc<(Mutex<Vec<Option<OrderState>>>, Condvar)>,
     screen_in_charge_state: Arc<(Mutex<Option<ScreenState>>, Condvar)>,
     last_order_completed: Option<usize>,
     screen_in_charge: usize,
     ping_screen: usize,
+    is_finished: bool,
 }
 
 // cosas a tener en cuenta:
@@ -93,6 +94,7 @@ impl Screen {
             last_order_completed: None,
             screen_in_charge: screen_charge,
             ping_screen: screen_that_pings,
+            is_finished: false,
         };
 
         let mut clone = ret.clone()?;
@@ -108,6 +110,7 @@ impl Screen {
                     id, e
                 ),
             }
+            clone.is_finished = true;
         });
 
         // thread for pinging assigned screen
@@ -135,7 +138,7 @@ impl Screen {
         Ok(ret)
     }
 
-    fn clone(&self) -> Result<Screen, Box<dyn Error>> {
+    pub fn clone(&self) -> Result<Screen, Box<dyn Error>> {
         let ret = Screen {
             id: self.id,
             log: HashMap::new(),
@@ -145,6 +148,7 @@ impl Screen {
             last_order_completed: self.last_order_completed,
             screen_in_charge: self.screen_in_charge,
             ping_screen: self.ping_screen,
+            is_finished: self.is_finished,
         };
         Ok(ret)
     }
@@ -191,7 +195,11 @@ impl Screen {
         println!("[SCREEN {}]Preparing order: {:?}", self.id, order.id());
         let mut message: Vec<u8> = b"prepare\n".to_vec();
         message.extend_from_slice(&order_serialized);
-        self.broadcast_and_wait(&message, OrderState::Ready, order)
+        if self.broadcast_and_wait(&message, OrderState::Ready, order)?{
+            self.log.insert(order.id(), OrderState::Ready);
+            return Ok(true);
+        }
+        Ok(false)
     }
 
     /// This represents the second phase of the two-phase commit protocol. The screen sends a
@@ -400,8 +408,96 @@ impl Screen {
         *responses = Some(ScreenState::Finished);
         Ok(())
     }
-}
 
+
+    pub fn is_finished(&self) -> bool {
+        self.is_finished
+    }
+    /// Logic to handle this kind of messages:
+    /// - Prepare
+    /// - Finished
+    /// - Abort
+    /// - Keepalive
+    pub fn handle_message(&mut self, message: &str, from: String, order_id: usize) -> Result<(), Box<dyn Error>> {
+        let order_state = match message {
+            "ready" => OrderState::Ready,
+            "abort" => OrderState::Abort,
+            "finished" => OrderState::Finished,
+            "keepalive" => OrderState::Wait(Instant::now()),
+            _ => return Ok(()),
+        };
+        let mut responses = self.responses.0.lock().map_err(|e| e.to_string())?;
+       
+        if from  == PAYMENT_GATEWAY_IP {
+            responses[PAYMENT_GATEWAY] = Some(order_state);
+            println!(
+                "[SCREEN {}] received {} from payment gateway for order {}",
+                self.id, message, order_id
+            );
+        } else {
+            responses[ORDER_MANAGEMENT] = Some(order_state);
+            println!(
+                "[SCREEN {}] received {} from order management for order {}",
+                self.id, message, order_id
+            );
+            //a double ready from order management means that the coordinator has changed
+        }
+
+        self.responses.1.notify_all();
+        Ok(())
+        
+    }
+
+    async fn _receiver(&mut self) -> Result<(), Box<dyn Error>> {
+        
+        let screen_cloned = self.clone()?;
+        let screen_actor = screen_cloned.start();
+        loop {
+            let mut buf = [0; 1024];
+            let (size, from) = self.socket.recv_from(&mut buf)?;
+            let message = String::from_utf8_lossy(&buf[..size]);
+            let mut parts = message.split('\n');
+    
+            let response = parts.next().ok_or("No response")?;
+            let responses = self.responses.0.lock().map_err(|e| e.to_string())?;
+            match response {
+                "ready" => {
+                    let order_id = parts.next().ok_or("No order id")?.parse::<usize>()?;
+                
+                    drop(responses);
+                    self.handle_message(response, from.to_string(), order_id)?;
+                }
+                "abort" => {
+                    let order_id = parts.next().ok_or("No order id")?.parse::<usize>()?;
+                    drop(responses);
+                    self.handle_message(response, from.to_string(), order_id)?;
+                }
+                "finished" => {
+                    let order_id = parts.next().ok_or("No order id")?.parse::<usize>()?;
+                    drop(responses);
+                    self.handle_message(response, from.to_string(), order_id)?;
+                }
+                "keepalive" => {
+                    let order_id = parts.next().ok_or("No order id")?.parse::<usize>()?;
+                    drop(responses);
+                    self.handle_message(response, from.to_string(), order_id)?;
+                }
+                "screen" => {
+                    let message: ScreenMessage =
+                        serde_json::from_str(parts.next().ok_or("No message")?)?;
+                    // should convert this to main actix system
+                    drop(responses);
+                    screen_actor.send(message).await?;
+                }
+                _ => {
+                    println!("[SCREEN {}] ??? received", self.id());
+                }
+            }
+        }
+    }
+    
+
+}
 /// Implement the Actor trait for Screen
 impl Actor for Screen {
     type Context = Context<Self>;
@@ -447,104 +543,85 @@ impl Handler<ScreenMessage> for Screen {
     }
 }
 
-/// Format of expected messages:
-/// {message_type}\n{message}
-#[actix_rt::main]
-async fn main() -> Result<(), Box<dyn Error>> {
-    let args: Vec<String> = env::args().collect();
-    let id: usize = args[1].parse()?;
-    let screen = Screen::new(id)?;
-    let screen_cloned = screen.clone()?;
-    let screen_actor = screen_cloned.start();
-    loop {
-        let mut buf = [0; 1024];
-        let (size, from) = screen.socket.recv_from(&mut buf)?;
-        let message = String::from_utf8_lossy(&buf[..size]);
-        let mut parts = message.split('\n');
 
-        let response = parts.next().ok_or("No response")?;
-        let mut responses = screen.responses.0.lock().map_err(|e| e.to_string())?;
-        match response {
-            "ready" => {
-                let order_id = parts.next().ok_or("No order id")?.parse::<usize>()?;
-                if from.to_string() == PAYMENT_GATEWAY_IP {
-                    responses[PAYMENT_GATEWAY] = Some(OrderState::Ready);
-                    println!(
-                        "[SCREEN {}] received READY from payment gateway for order {}",
-                        screen.id, order_id
-                    );
-                } else {
-                    responses[ORDER_MANAGEMENT] = Some(OrderState::Ready);
-                    println!(
-                        "[SCREEN {}] received READY from order management for order {}",
-                        screen.id, order_id
-                    );
-                    //a double ready from order management means that the coordinator has changed
-                }
 
-                screen.responses.1.notify_all();
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+    use tokio::{
+        task,
+        net::UdpSocket,
+
+    };
+   
+    
+    // - pantalla hace prepare y recibe ready de ambos
+    #[tokio::test]
+    async fn test_gateway_receive_prepare() {
+        let order = Order::new(1, 1, "0000111122223333".to_string(), Vec::new());
+        let file_path = format!("orders_screen_5.jsonl");
+        let mut file = File::create(&file_path).unwrap();
+        file.write_all(format!("{}\n", serde_json::to_string(&order).unwrap()).as_bytes())
+            .unwrap();
+        
+        let gateway = task::spawn(
+            async move {
+            
+                let socket = UdpSocket::bind(PAYMENT_GATEWAY_IP.to_string()).await.unwrap();
+                let mut buf = [0; 1024];
+                let (size, _) = socket.recv_from(&mut buf).await.unwrap();
+                let message = String::from_utf8_lossy(&buf[..size]);
+                let mut parts = message.split('\n');
+                let response = parts.next().unwrap();
+                response.to_owned()
+                
+
             }
-            "abort" => {
-                let order_id = parts.next().ok_or("No order id")?.parse::<usize>()?;
-                if from.to_string() == PAYMENT_GATEWAY_IP {
-                    responses[PAYMENT_GATEWAY] = Some(OrderState::Abort);
-                    println!(
-                        "[SCREEN {}] received ABORT from payment gateway for order {}",
-                        screen.id, order_id
-                    );
-                } else {
-                    responses[ORDER_MANAGEMENT] = Some(OrderState::Abort);
-                    println!(
-                        "[SCREEN {}] received ABORT from order management for order {}",
-                        screen.id, order_id
-                    );
-                }
-                screen.responses.1.notify_all();
-            }
-            "finished" => {
-                let order_id = parts.next().ok_or("No order id")?.parse::<usize>()?;
-                if from.to_string() == PAYMENT_GATEWAY_IP {
-                    responses[PAYMENT_GATEWAY] = Some(OrderState::Finished);
-                    println!(
-                        "[SCREEN {}] received FINISHED from payment gateway for order {}",
-                        screen.id, order_id
-                    );
-                } else {
-                    responses[ORDER_MANAGEMENT] = Some(OrderState::Finished);
-                    println!(
-                        "[SCREEN {}] received FINISHED from order management for order {}",
-                        screen.id, order_id
-                    );
-                }
-                screen.responses.1.notify_all();
-            }
-            "keepalive" => {
-                let order_id = parts.next().ok_or("No order id")?.parse::<usize>()?;
-                if from.to_string() == PAYMENT_GATEWAY_IP {
-                    responses[PAYMENT_GATEWAY] = Some(OrderState::Wait(Instant::now()));
-                    println!(
-                        "[SCREEN {}] received KEEPALIVE from payment gateway for order {}",
-                        screen.id, order_id
-                    );
-                } else {
-                    responses[ORDER_MANAGEMENT] = Some(OrderState::Wait(Instant::now()));
-                    println!(
-                        "[SCREEN {}] received KEEPALIVE from order management for order {}",
-                        screen.id, order_id
-                    );
-                }
-                screen.responses.1.notify_all();
-            }
-            "screen" => {
-                let message: ScreenMessage =
-                    serde_json::from_str(parts.next().ok_or("No message")?)?;
-                // should convert this to main actix system
-                drop(responses);
-                screen_actor.send(message).await?;
-            }
-            _ => {
-                println!("[SCREEN {}] ??? received", screen.id());
-            }
-        }
+        );
+        let _ = Screen::new(5).unwrap();
+        assert_eq!(gateway.await.unwrap(), "prepare".to_string());
     }
+
+    #[tokio::test]
+    async fn test_management_receive_prepare() {
+        let order = Order::new(1, 1, "0000111122223333".to_string(), Vec::new());
+        let file_path = format!("orders_screen_7.jsonl");
+        let mut file = File::create(&file_path).unwrap();
+        file.write_all(format!("{}\n", serde_json::to_string(&order).unwrap()).as_bytes())
+            .unwrap();
+            
+        let management = task::spawn(
+            async move {
+                
+                let socket = UdpSocket::bind(ORDER_MANAGEMENT_IP.to_string()).await.unwrap();
+                let mut buf = [0; 1024];
+                let (size, _) = socket.recv_from(&mut buf).await.unwrap();
+                let message = String::from_utf8_lossy(&buf[..size]);
+                let mut parts = message.split('\n');
+                let response = parts.next().unwrap();
+                response.to_owned()
+                    
+    
+            }
+        );
+        let _ = Screen::new(7).unwrap();
+        assert_eq!(management.await.unwrap(), "prepare".to_string());
+    }
+
+    #[tokio::test]
+    async fn test_prepare_timeout_waiting_responses() {
+        let order = Order::new(1, 1, "0000111122223333".to_string(), Vec::new());
+        let file_path = format!("orders_screen_9.jsonl");
+        let _ = File::create(&file_path).unwrap();
+       
+         
+        let mut screen = Screen::new(9).unwrap();
+        assert!(screen.prepare(&order).unwrap() == false);
+    }
+
+   
+
 }

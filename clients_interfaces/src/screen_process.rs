@@ -1,7 +1,7 @@
 use clients_interfaces::{screen::Screen, screen_message::ScreenMessage};
 use std::{env, error::Error};
 use actix::prelude::Actor;
-
+const PAYMENT_GATEWAY_IP: &str = "127.0.0.1:8081";
 #[actix_rt::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     let args: Vec<String> = env::args().collect();
@@ -22,6 +22,15 @@ async fn main() -> Result<(), Box<dyn Error>> {
         
         match response {
             "ready" | "abort" | "finished" |"keepalive"=> {
+                let mut order_management_ip = screen.order_management_ip.lock().map_err(|e|e.to_string())?;
+                if from != *order_management_ip && from.to_string() != PAYMENT_GATEWAY_IP {
+                    // change to screen.order_management_ip
+                    println!("Change order_management_ip from {} to {}", *order_management_ip, from);
+                    *order_management_ip = from;
+                    
+                    
+                }
+                drop(order_management_ip);
                 let order_id = parts.next().ok_or("No order id")?.parse::<usize>()?;
                 screen.handle_message(response, from.to_string(), order_id)?;
             }

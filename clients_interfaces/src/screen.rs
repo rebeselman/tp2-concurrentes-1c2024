@@ -43,7 +43,7 @@ pub struct Screen {
     log: HashMap<usize, OrderState>,
     pub socket: UdpSocket,
     responses: Arc<(Mutex<Vec<Option<OrderState>>>, Condvar)>,
-    order_management_ip: SocketAddr,
+    pub order_management_ip: Arc<Mutex<SocketAddr>>,
     screen_in_charge_state: Arc<(Mutex<Option<ScreenState>>, Condvar)>,
     last_order_completed: Option<usize>,
     screen_in_charge: usize,
@@ -92,7 +92,7 @@ impl Screen {
             log: HashMap::new(),
             socket: UdpSocket::bind(id_to_addr(id))?,
             responses: Arc::new((Mutex::new(vec![None; STAKEHOLDERS]), Condvar::new())),
-            order_management_ip: ORDER_MANAGEMENT_IP.to_owned().parse().unwrap(),
+            order_management_ip: Arc::new(Mutex::new(ORDER_MANAGEMENT_IP.to_owned().parse().unwrap())),
             screen_in_charge_state: Arc::new((Mutex::new(None), Condvar::new())),
             last_order_completed: None,
             screen_in_charge: screen_charge,
@@ -125,6 +125,7 @@ impl Screen {
                 let (lock, _) = &*clone_ping.screen_in_charge_state;
                 let responses = lock.lock().map_err(|e| e.to_string()).unwrap();
                 if let Some(ScreenState::Finished) = *responses {
+                    println!("[SCREEN {}] I stop pinging", id);
                     drop(responses);
                     break;
                 }
@@ -165,7 +166,14 @@ impl Screen {
             order.id()
         );
         if self.prepare(&order)? {
-            self.commit(&order)
+            if self.commit(&order)? {
+                return Ok(true);
+            }
+            else {
+                // if the commit fails it is because the coordinator has changed, should try again the protocol
+                println!("[SCREEN {}] Retrying protocol", self.id);
+                return self.protocol(order);
+            }
         } else {
             self.abort(&order)
         }
@@ -184,6 +192,11 @@ impl Screen {
                 Err(e) => println!("[SCREEN {}] Error processing order: {:?}", self.id, e),
             }
         }
+        // send finished message
+        self.send_message_to_screen(
+            self.ping_screen,
+            ScreenMessage::Finished { screen_id: self.id },
+        )?;
         Ok(())
     }
 
@@ -224,7 +237,12 @@ impl Screen {
         let order_serialized = serde_json::to_vec(order)?;
         let mut message: Vec<u8> = b"commit\n".to_vec();
         message.extend_from_slice(&order_serialized);
-        self.broadcast_and_wait(&message, OrderState::Finished, order)
+        if self.broadcast_and_wait(&message, OrderState::Finished, order)?{
+            println!("[SCREEN {}] Order {} finished successfully", self.id, order.id());
+            return Ok(true);
+        }else {
+            return Ok(false);
+        }
     }
 
     /// This method is called when the screen receives an "abort" message from the payment gateway or the order management in
@@ -262,6 +280,7 @@ impl Screen {
     ///        If the screen was expecting abort, and it receives ready from order management, it should send abort to order management to clarify that the transaction should not continue as the card failed in this case
     ///        If the screen was expecting finished, and it receives ready from order management, it should send commit to order management to clarify that the transaction should continue since the card was already accepted in this case (when ready was received before)
 
+
     fn broadcast_and_wait(
         &mut self,
         message: &[u8],
@@ -273,7 +292,12 @@ impl Screen {
             *responses = vec![None; STAKEHOLDERS];
         }
         self.socket.send_to(message, PAYMENT_GATEWAY_IP)?;
-        self.socket.send_to(message, self.order_management_ip)?;
+        
+        let order_management_ip = self.order_management_ip.lock().map_err(|e| e.to_string())?;
+        println!("Order managment ip: {:?}", order_management_ip);
+        
+        self.socket.send_to(message, *order_management_ip)?;
+        drop(order_management_ip);
         let (lock, cvar) = &*self.responses;
         let mut responses = lock.lock().map_err(|e| e.to_string())?;
         loop {
@@ -298,20 +322,12 @@ impl Screen {
                     }
                     return Ok(true);
                 } else if (expected == OrderState::Abort || expected == OrderState::Finished)
-                    && responses[ORDER_MANAGEMENT] == Some(OrderState::Ready)
-                {
-                    self.socket.send_to(message, self.order_management_ip)?;
-                    continue;
+                    && responses[ORDER_MANAGEMENT] == Some(OrderState::Ready){
+                    // if the screen was expecting abort or finished and it receives ready from order management
+                    // should start again the protocol
+                    return Ok(false);
                 }
-                if let Some(OrderState::ChangingOrderManagement(addr)) = responses[ORDER_MANAGEMENT] {
-                    if addr != self.order_management_ip {
-                        self.order_management_ip = addr;
-                        println!("[SCREEN {}] changing order management ip to {}", self.id, addr);
-                        self.socket.send_to(message, self.order_management_ip)?;
-                    }
-                    responses[PAYMENT_GATEWAY] = Some(OrderState::Ready);
-                    continue;
-                }
+               
             } else if responses[PAYMENT_GATEWAY] != Some(expected) {
                 return Ok(false);
             }
@@ -414,11 +430,7 @@ impl Screen {
                 }
             }
         }
-        // send finished message
-        self.send_message_to_screen(
-            self.ping_screen,
-            ScreenMessage::Finished { screen_id: self.id },
-        )?;
+        
         Ok(())
     }
 

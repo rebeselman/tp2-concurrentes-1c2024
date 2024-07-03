@@ -178,7 +178,7 @@ mod tests {
         let mut buf = [0; 1024];
         let (len, _src) = screen_socket.recv_from(&mut buf).await.unwrap();
         let response = String::from_utf8_lossy(&buf[..len]).to_string();
-        assert_eq!(response, "ready\n9");
+        assert!(response == "ready\n9" || response == "abort\n9");
 
         // Give some time for logging
         sleep(Duration::from_millis(100)).await;

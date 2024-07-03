@@ -75,11 +75,7 @@ impl Robot {
         let mut message: Vec<u8> = b"access\n".to_vec();
         let request_serialized = serde_json::to_vec(request)?;
         message.extend_from_slice(&request_serialized);
-        let socket = self.socket.clone();
-        let coordinator_addr = self.coordinator_addr.clone();
-        actix_rt::spawn(async move {
-            socket.send_to(&message, &coordinator_addr).await.unwrap();
-        });
+        self.send_to_socket(message, self.coordinator_addr.clone());
         Ok(())
     }
 
@@ -133,29 +129,29 @@ impl Robot {
     fn send_ping(&mut self) {
         let mut message: Vec<u8> = b"ping\n".to_vec();
         let ping_message = PingMessage::Ping;
-        let ping_serialized = serde_json::to_vec(&ping_message).unwrap();
-        message.extend_from_slice(&ping_serialized);
+        match serde_json::to_vec(&ping_message) {
+            Ok(ping_serialized) => message.extend_from_slice(&ping_serialized),
+            Err(e) => {
+                eprintln!("Failed to serialize ping message: {:?}", e);
+                return;
+            },
+        }
         if self.is_coordinator {
             self.ping_all_peers(&mut message);
         } else {
             // Only ping coordinator
-            let coordinator_addr = self.coordinator_addr.clone();
-            let socket = self.socket.clone();
-            actix_rt::spawn(async move {
-                socket.send_to(&message, coordinator_addr).await.unwrap();
-            });
+            self.send_to_socket(message, self.coordinator_addr.clone());
         }
     }
 
     fn ping_all_peers(&mut self, message:  &mut [u8]) {
-        for (peer_addr, status) in &mut self.peers {
-            let message_to_peer = message.to_owned();
-            let socket = self.socket.clone();
-            let addr = peer_addr.clone();
-            actix_rt::spawn(async move {
-                socket.send_to(&message_to_peer, addr).await.unwrap();
-            });
+        for (_peer_addr, status) in &mut self.peers {
             status.ping_attempts += 1;
+        }
+
+        for (peer_addr, _status) in &self.peers {
+            let addr = peer_addr.clone();
+            self.send_to_socket(message.to_vec(), addr);
         }
     }
 
@@ -169,10 +165,17 @@ impl Robot {
                 if duration_since_last_pong > Duration::from_secs(10) || status.ping_attempts >= 10 {
                     println!("[ROBOT {}] Peer {} has failed. Reassigning order", self.robot_id, peer_addr);
                     peers_to_remove.push(peer_addr.clone());
-                    let peer_id = peer_addr.chars().last().unwrap().to_digit(10).unwrap() as usize;
+                    let peer_id = self.get_peer_id(peer_addr).unwrap_or_else(|| {
+                        eprintln!("Failed to get peer id");
+                        0
+                    });
                     let request = RobotResponse::ReassignOrder { robot_id: peer_id };
-                    let coordinator = self.coordinator.clone().unwrap();
-                    coordinator.do_send(request);
+                    if let Some(coordinator) = self.coordinator.clone() {
+                        coordinator.do_send(request);
+                    } else {
+                        // Handle the case where coordinator is None, e.g., log an error or take corrective action
+                        eprintln!("Coordinator is not available.");
+                    }
                 }
             } else {
                 println!("[{}] [ROBOT {}] Peer {} has never responded. Ping attempts: {}",
@@ -202,23 +205,29 @@ impl Robot {
         }
     }
 
+    fn get_peer_id(&self, peer: &str) -> Option<usize> {
+        peer.chars().last().and_then(|c| c.to_digit(10)).map(|d| d as usize)
+    }
+
     fn initiate_election(&mut self) {
         println!("[Robot {}] Initiating election", self.robot_id);
         let mut message: Vec<u8> = b"election\n".to_vec();
         let election_message = ElectionMessage::Election { robot_id: self.robot_id };
-        let msg_serialized = serde_json::to_vec(&election_message).unwrap();
-        message.extend_from_slice(&msg_serialized);
+        match serde_json::to_vec(&election_message) {
+            Ok(msg_serialized) => message.extend_from_slice(&msg_serialized),
+            Err(e) => {
+                eprintln!("Failed to serialize election message: {:?}", e);
+                return;
+            },
+        }
         for (peer, _) in self.peers.iter() {
             // Get the id of the peer from last number in peer:
-            let i = peer.chars().last().unwrap().to_digit(10).unwrap() as usize;
-            if i > self.robot_id {
-                println!("[ROBOT {}] Sending election message to {}", self.robot_id, i);
-                let peer = peer.clone();
-                let socket = self.socket.clone();
-                let msg = message.clone();
-                actix_rt::spawn(async move {
-                    socket.send_to(&msg, peer).await.unwrap();
-                });
+            let i = self.get_peer_id(peer);
+            if let Some(digit) = i {
+                if digit > self.robot_id {
+                    println!("[ROBOT {}] Sending election message to {:?}", self.robot_id, i);
+                    self.send_to_socket(message.clone(), peer.clone());
+                }
             }
         }
         self.election_state = ElectionState::Candidate;
@@ -234,17 +243,19 @@ impl Robot {
 
             let mut message: Vec<u8> = b"election\n".to_vec();
             let election_message = ElectionMessage::NewCoordinator { robot_id: self.robot_id };
-            let msg_serialized = serde_json::to_vec(&election_message).unwrap();
-            message.extend_from_slice(&msg_serialized);
+            match serde_json::to_vec(&election_message) {
+                Ok(msg_serialized) => message.extend_from_slice(&msg_serialized),
+                Err(e) => {
+                    eprintln!("Failed to serialize election message: {:?}", e);
+                    return;
+                },
+            }
 
             for (i, (peer, _)) in self.peers.iter().enumerate() {
                 if i != self.robot_id {
-                    let socket = self.socket.clone();
                     let msg = message.clone();
                     let peer = peer.clone();
-                    actix_rt::spawn(async move {
-                        socket.send_to(&msg, peer).await.unwrap();
-                    });
+                    self.send_to_socket(msg, peer);
                 }
             }
             self.election_state = ElectionState::None;
@@ -401,43 +412,82 @@ impl Robot {
     }
 
     fn handle_as_coordinator(&mut self, message_type: &str, mut parts: std::str::Split<char>, addr: SocketAddr) {
-        let coordinator = self.coordinator.clone().unwrap();
-        let message_type = message_type.to_string().clone();
-        let content = parts.next().unwrap().to_string().clone();
+        let coordinator = match self.coordinator.clone() {
+            Some(coordinator) => coordinator,
+            None => {
+                eprintln!("Coordinator not found.");
+                return;
+            }
+        };        let message_type = message_type.to_string().clone();
+        let content = match parts.next() {
+            Some(part) => part.to_string(),
+            None => {
+                eprintln!("No more parts available.");
+                return;
+            }
+        };
         actix_rt::spawn(async move {
             match message_type.as_str() {
                 "prepare" => {
-                    let order: Order = serde_json::from_str(content.as_str()).unwrap();
-                    println!("[COORDINATOR] Received prepare message for order: {}", order.id());
-                    let order_request = ScreenMessage::OrderRequest {
-                        order,
-                        screen_addr: addr,
-                    };
-                    coordinator.send(order_request).await.unwrap();
+                    match serde_json::from_str::<Order>(content.as_str()) {
+                        Ok(order) => {
+                            println!("[COORDINATOR] Received prepare message for order: {}", order.id());
+                            let order_request = ScreenMessage::OrderRequest {
+                                order,
+                                screen_addr: addr,
+                            };
+                            if let Err(e) = coordinator.send(order_request).await {
+                                eprintln!("Failed to send OrderRequest: {}", e);
+                            }
+                        },
+                        Err(e) => eprintln!("Failed to deserialize Order: {}", e),
+                    }
                 }
                 "commit" => {
-                    let order: Order = serde_json::from_str(content.as_str()).unwrap();
-                    let commit_received = ScreenMessage::CommitReceived {
-                        order
-                    };
-                    coordinator.send(commit_received).await.unwrap();
+                    match serde_json::from_str::<Order>(content.as_str()) {
+                        Ok(order) => {
+                            let commit_received = ScreenMessage::CommitReceived { order };
+                            if let Err(e) = coordinator.send(commit_received).await {
+                                eprintln!("Failed to send CommitReceived: {}", e);
+                            }
+                        },
+                        Err(e) => eprintln!("Failed to deserialize Order: {}", e),
+                    }
                 }
                 "abort" => {
-                    let order: Order = serde_json::from_str(content.as_str()).unwrap();
-                    println!("[COORDINATOR] Received abort message for order: {}", order.id());
-
-                    let abort = ScreenMessage::Abort {
-                        order,
-                    };
-                    coordinator.send(abort).await.unwrap();
+                    match serde_json::from_str::<Order>(content.as_str()) {
+                        Ok(order) => {
+                            println!("[COORDINATOR] Received abort message for order: {}", order.id());
+                            let abort = ScreenMessage::Abort { order };
+                            if let Err(e) = coordinator.send(abort).await {
+                                eprintln!("Failed to send Abort message: {}", e);
+                            }
+                        },
+                        Err(e) => eprintln!("Failed to deserialize Order: {}", e),
+                    }
                 }
                 "access" => {
-                    let msg: RobotResponse = serde_json::from_str(content.as_str()).unwrap();
-
-                    coordinator.send(msg).await.unwrap();
-                },
+                    match serde_json::from_str::<RobotResponse>(content.as_str()) {
+                        Ok(msg) => {
+                            if let Err(e) = coordinator.send(msg).await {
+                                eprintln!("Failed to send RobotResponse: {}", e);
+                            }
+                        },
+                        Err(e) => eprintln!("Failed to deserialize RobotResponse: {}", e),
+                    }
+                }
                 _ => {}
             };
+        });
+    }
+
+    fn send_to_socket(&self, msg: Vec<u8>, addr: String) {
+        let socket = self.socket.clone();
+        actix_rt::spawn(async move {
+            match socket.send_to(&msg, addr.clone()).await {
+                Ok(_) => (),
+                Err(e) => eprintln!("Failed to send message to {}: {}", addr, e),
+            }
         });
     }
 
@@ -448,13 +498,12 @@ impl Robot {
                     // Send OK message
                     let mut message: Vec<u8> = b"election\n".to_vec();
                     let election_message = ElectionMessage::Ok { robot_id: self.robot_id };
-                    let election_serialized = serde_json::to_vec(&election_message).unwrap();
-                    message.extend_from_slice(&election_serialized);
-                    let socket = self.socket.clone();
+                    match serde_json::to_vec(&election_message) {
+                        Ok(election_serialized) => message.extend_from_slice(&election_serialized),
+                        Err(e) => eprintln!("Failed to serialize election message: {:?}", e),
+                    }
                     let addr = format!("127.0.0.1:809{}", robot_id);
-                    actix_rt::spawn(async move {
-                        socket.send_to(&message, addr).await.unwrap();
-                    });
+                    self.send_to_socket(message, addr);
                     println!("[ROBOT {}] Received election message from {}", self.robot_id, robot_id);
                     if self.election_state == ElectionState::None {
                         self.election_state = ElectionState::StartingElection;
@@ -483,9 +532,16 @@ impl Robot {
                 actix_rt::spawn(async move {
                     let mut message: Vec<u8> = b"ping\n".to_vec();
                     let pong_message = PingMessage::Pong;
-                    let pong_serialized = serde_json::to_vec(&pong_message).unwrap();
-                    message.extend_from_slice(&pong_serialized);
-                    cloned_socket.send_to(&message, addr).await.unwrap();
+                    match serde_json::to_vec(&pong_message) {
+                        Ok(pong_serialized) => {
+                            message.extend_from_slice(&pong_serialized);
+                            match cloned_socket.send_to(&message, addr).await {
+                                Ok(_) => (),
+                                Err(e) => eprintln!("Failed to send pong message: {}", e),
+                            }
+                        },
+                        Err(e) => eprintln!("Failed to serialize pong message: {}", e),
+                    }
                 });
             }
             PingMessage::Pong => {
@@ -589,7 +645,9 @@ impl Actor for Robot {
                         println!("[{}] [Robot {}] Retrying access request for flavors: {:?}", Local::now().format("%Y-%m-%d %H:%M:%S"), robot.robot_id, flavors);
                         let order = order.clone();
                         let flavors = flavors.clone();
-                        robot.request_access(&order, &flavors).unwrap();
+                        robot.request_access(&order, &flavors).unwrap_or_else(|e| {
+                            eprintln!("[Robot {}] Error retrying access request: {}", robot.robot_id, e);
+                        });
                     }
                 }
             }
@@ -605,20 +663,40 @@ impl StreamHandler<io::Result<(usize, Vec<u8>, SocketAddr)>> for Robot {
         if let Ok((len, buf, addr)) = item {
             let received_message = String::from_utf8_lossy(&buf[..len]);
             let mut parts = received_message.split('\n');
-            let message_type = parts.next().unwrap();
+            let message_type = parts.next().unwrap_or_else(|| {
+                eprintln!("[Robot {}] Error receiving message", self.robot_id);
+                ""
+            });
             if message_type == "ping" {
-                let message: PingMessage = serde_json::from_str(parts.next().unwrap()).unwrap();
-                self.handle_ping_message(message, addr);
+                match parts.next() {
+                    Some(part) => match serde_json::from_str::<PingMessage>(part) {
+                        Ok(message) => self.handle_ping_message(message, addr),
+                        Err(e) => eprintln!("[Robot {}] Failed to deserialize PingMessage: {}", self.robot_id, e),
+                    },
+                    None => eprintln!("[Robot {}] No message part available to deserialize", self.robot_id),
+                }
             } else if message_type == "election" {
-                let message: ElectionMessage = serde_json::from_str(parts.next().unwrap()).unwrap();
-                self.handle_election_message(message);
+                match parts.next() {
+                    Some(part) => match serde_json::from_str::<ElectionMessage>(part) {
+                        Ok(message) => self.handle_election_message(message),
+                        Err(e) => eprintln!("[Robot {}] Failed to deserialize ElectionMessage: {}", self.robot_id, e),
+                    },
+                    None => eprintln!("[Robot {}] No message part available to deserialize", self.robot_id),
+                }
             } else if self.is_coordinator {
                 self.update_last_pong(&addr);
                 self.handle_as_coordinator(message_type, parts, addr);
             } else {
-                let message: CoordinatorMessage = serde_json::from_str(parts.next().unwrap()).unwrap();
-                self.update_last_pong(&addr);
-                self.handle_as_robot(message);
+                match parts.next() {
+                    Some(part) => match serde_json::from_str::<CoordinatorMessage>(part) {
+                        Ok(message) => {
+                            self.handle_as_robot(message);
+                            self.update_last_pong(&addr);
+                        },
+                        Err(e) => eprintln!("[Robot {}] Failed to deserialize ElectionMessage: {}", self.robot_id, e),
+                    },
+                    None => eprintln!("[Robot {}] No message part available to deserialize", self.robot_id),
+                }
             }
         } else {
             eprintln!("[Robot {}] Error receiving message", self.robot_id);

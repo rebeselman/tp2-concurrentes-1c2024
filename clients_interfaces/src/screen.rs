@@ -3,6 +3,7 @@
 use actix::{Actor, Context, Handler};
 
 use orders::order::Order;
+use std::net::SocketAddr;
 use std::sync::MutexGuard;
 use std::{
     collections::HashMap,
@@ -14,11 +15,8 @@ use std::{
     thread,
     time::{Duration, Instant},
 };
-use std::net::SocketAddr;
 //use clients_interfaces::screen_message::ScreenMessage;
-use crate::{
-    order_state::OrderState, screen_message::ScreenMessage, screen_state::ScreenState,
-};
+use crate::{order_state::OrderState, screen_message::ScreenMessage, screen_state::ScreenState};
 
 const TIMEOUT: Duration = Duration::from_secs(60);
 const PAYMENT_GATEWAY_IP: &str = "127.0.0.1:8081";
@@ -92,7 +90,9 @@ impl Screen {
             log: HashMap::new(),
             socket: UdpSocket::bind(id_to_addr(id))?,
             responses: Arc::new((Mutex::new(vec![None; STAKEHOLDERS]), Condvar::new())),
-            order_management_ip: Arc::new(Mutex::new(ORDER_MANAGEMENT_IP.to_owned().parse().unwrap())),
+            order_management_ip: Arc::new(Mutex::new(
+                ORDER_MANAGEMENT_IP.to_owned().parse().unwrap(),
+            )),
             screen_in_charge_state: Arc::new((Mutex::new(None), Condvar::new())),
             last_order_completed: None,
             screen_in_charge: screen_charge,
@@ -100,14 +100,14 @@ impl Screen {
             is_finished: false,
         };
 
-        let mut clone = ret.clone()?;
+        let mut clone = ret.clone_screen()?;
         thread::spawn(move || {
             match clone.process_orders() {
                 Ok(_) => {}
                 Err(e) => println!("[SCREEN {}] Error processing orders: {:?}", id, e),
             }
             match clone.process_orders_from_down_screen() {
-                Ok(_) => {},
+                Ok(_) => {}
                 Err(e) => println!(
                     "[SCREEN {}] Error processing orders from down screen: {:?}",
                     id, e
@@ -118,7 +118,7 @@ impl Screen {
 
         // thread for pinging assigned screen
 
-        let clone_ping = ret.clone()?;
+        let clone_ping = ret.clone_screen()?;
         thread::spawn(move || {
             loop {
                 // break if the screen is finished
@@ -142,7 +142,7 @@ impl Screen {
         Ok(ret)
     }
 
-    pub fn clone(&self) -> Result<Screen, Box<dyn Error>> {
+    pub fn clone_screen(&self) -> Result<Screen, Box<dyn Error>> {
         let ret = Screen {
             id: self.id,
             log: HashMap::new(),
@@ -167,12 +167,11 @@ impl Screen {
         );
         if self.prepare(&order)? {
             if self.commit(&order)? {
-                return Ok(true);
-            }
-            else {
+                Ok(true)
+            } else {
                 // if the commit fails it is because the coordinator has changed, should try again the protocol
                 println!("[SCREEN {}] Retrying protocol", self.id);
-                return self.protocol(order);
+                self.protocol(order)
             }
         } else {
             self.abort(&order)
@@ -213,7 +212,7 @@ impl Screen {
         println!("[SCREEN {}] Preparing order: {:?}", self.id, order.id());
         let mut message: Vec<u8> = b"prepare\n".to_vec();
         message.extend_from_slice(&order_serialized);
-        if self.broadcast_and_wait(&message, OrderState::Ready, order)?{
+        if self.broadcast_and_wait(&message, OrderState::Ready, order)? {
             self.log.insert(order.id(), OrderState::Ready);
             return Ok(true);
         }
@@ -226,7 +225,11 @@ impl Screen {
     fn commit(&mut self, order: &Order) -> Result<bool, Box<dyn Error>> {
         if let Some(state) = self.log.get(&order.id()) {
             if *state == OrderState::Finished {
-                println!("[SCREEN {}] Order {} already committed", self.id, order.id());
+                println!(
+                    "[SCREEN {}] Order {} already committed",
+                    self.id,
+                    order.id()
+                );
                 return Ok(true);
             }
         }
@@ -237,11 +240,15 @@ impl Screen {
         let order_serialized = serde_json::to_vec(order)?;
         let mut message: Vec<u8> = b"commit\n".to_vec();
         message.extend_from_slice(&order_serialized);
-        if self.broadcast_and_wait(&message, OrderState::Finished, order)?{
-            println!("[SCREEN {}] Order {} finished successfully", self.id, order.id());
-            return Ok(true);
-        }else {
-            return Ok(false);
+        if self.broadcast_and_wait(&message, OrderState::Finished, order)? {
+            println!(
+                "[SCREEN {}] Order {} finished successfully",
+                self.id,
+                order.id()
+            );
+            Ok(true)
+        } else {
+            Ok(false)
         }
     }
 
@@ -280,7 +287,6 @@ impl Screen {
     ///        If the screen was expecting abort, and it receives ready from order management, it should send abort to order management to clarify that the transaction should not continue as the card failed in this case
     ///        If the screen was expecting finished, and it receives ready from order management, it should send commit to order management to clarify that the transaction should continue since the card was already accepted in this case (when ready was received before)
 
-
     fn broadcast_and_wait(
         &mut self,
         message: &[u8],
@@ -292,10 +298,10 @@ impl Screen {
             *responses = vec![None; STAKEHOLDERS];
         }
         self.socket.send_to(message, PAYMENT_GATEWAY_IP)?;
-        
+
         let order_management_ip = self.order_management_ip.lock().map_err(|e| e.to_string())?;
         println!("Order managment ip: {:?}", order_management_ip);
-        
+
         self.socket.send_to(message, *order_management_ip)?;
         drop(order_management_ip);
         let (lock, cvar) = &*self.responses;
@@ -322,12 +328,12 @@ impl Screen {
                     }
                     return Ok(true);
                 } else if (expected == OrderState::Abort || expected == OrderState::Finished)
-                    && responses[ORDER_MANAGEMENT] == Some(OrderState::Ready){
+                    && responses[ORDER_MANAGEMENT] == Some(OrderState::Ready)
+                {
                     // if the screen was expecting abort or finished and it receives ready from order management
                     // should start again the protocol
                     return Ok(false);
                 }
-               
             } else if responses[PAYMENT_GATEWAY] != Some(expected) {
                 return Ok(false);
             }
@@ -430,7 +436,7 @@ impl Screen {
                 }
             }
         }
-        
+
         Ok(())
     }
 
@@ -441,7 +447,6 @@ impl Screen {
         Ok(())
     }
 
-
     pub fn is_finished(&self) -> bool {
         self.is_finished
     }
@@ -450,7 +455,12 @@ impl Screen {
     /// - Finished
     /// - Abort
     /// - Keepalive
-    pub fn handle_message(&mut self, message: &str, from: String, order_id: usize) -> Result<(), Box<dyn Error>> {
+    pub fn handle_message(
+        &mut self,
+        message: &str,
+        from: String,
+        order_id: usize,
+    ) -> Result<(), Box<dyn Error>> {
         let order_state = match message {
             "ready" => OrderState::Ready,
             "abort" => OrderState::Abort,
@@ -459,8 +469,8 @@ impl Screen {
             _ => return Ok(()),
         };
         let mut responses = self.responses.0.lock().map_err(|e| e.to_string())?;
-       
-        if from  == PAYMENT_GATEWAY_IP {
+
+        if from == PAYMENT_GATEWAY_IP {
             responses[PAYMENT_GATEWAY] = Some(order_state);
             println!(
                 "[SCREEN {}] received {} from payment gateway for order {}",
@@ -477,25 +487,23 @@ impl Screen {
 
         self.responses.1.notify_all();
         Ok(())
-        
     }
 
     async fn _receiver(&mut self) -> Result<(), Box<dyn Error>> {
-        
-        let screen_cloned = self.clone()?;
+        let screen_cloned = self.clone_screen()?;
         let screen_actor = screen_cloned.start();
         loop {
             let mut buf = [0; 1024];
             let (size, from) = self.socket.recv_from(&mut buf)?;
             let message = String::from_utf8_lossy(&buf[..size]);
             let mut parts = message.split('\n');
-    
+
             let response = parts.next().ok_or("No response")?;
             let responses = self.responses.0.lock().map_err(|e| e.to_string())?;
             match response {
                 "ready" => {
                     let order_id = parts.next().ok_or("No order id")?.parse::<usize>()?;
-                
+
                     drop(responses);
                     self.handle_message(response, from.to_string(), order_id)?;
                 }
@@ -527,8 +535,6 @@ impl Screen {
             }
         }
     }
-    
-
 }
 /// Implement the Actor trait for Screen
 impl Actor for Screen {
@@ -553,13 +559,15 @@ impl Handler<ScreenMessage> for Screen {
 
                 self.send_message_to_screen(screen_id, response)
                     .unwrap_or_else(|e| eprintln!("Error sending pong: {:?}", e));
-
             }
             ScreenMessage::Pong {
                 screen_id,
                 last_order,
             } => {
-                println!("[SCREEN {}] received PONG from SCREEN: {}", self.id, screen_id);
+                println!(
+                    "[SCREEN {}] received PONG from SCREEN: {}",
+                    self.id, screen_id
+                );
                 self.process_pong(screen_id, last_order)
                     .unwrap_or_else(|e| eprintln!("Error processing pong: {:?}", e));
             }
@@ -576,21 +584,12 @@ impl Handler<ScreenMessage> for Screen {
     }
 }
 
-
-
-
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::io::Write;
-    use tokio::{
-        task,
-        net::UdpSocket,
+    use tokio::{net::UdpSocket, task};
 
-    };
-   
-    
     // - pantalla hace prepare y recibe ready de ambos
     #[tokio::test]
     async fn test_gateway_receive_prepare() {
@@ -599,21 +598,18 @@ mod tests {
         let mut file = File::create(&file_path).unwrap();
         file.write_all(format!("{}\n", serde_json::to_string(&order).unwrap()).as_bytes())
             .unwrap();
-        
-        let gateway = task::spawn(
-            async move {
-            
-                let socket = UdpSocket::bind(PAYMENT_GATEWAY_IP.to_string()).await.unwrap();
-                let mut buf = [0; 1024];
-                let (size, _) = socket.recv_from(&mut buf).await.unwrap();
-                let message = String::from_utf8_lossy(&buf[..size]);
-                let mut parts = message.split('\n');
-                let response = parts.next().unwrap();
-                response.to_owned()
-                
 
-            }
-        );
+        let gateway = task::spawn(async move {
+            let socket = UdpSocket::bind(PAYMENT_GATEWAY_IP.to_string())
+                .await
+                .unwrap();
+            let mut buf = [0; 1024];
+            let (size, _) = socket.recv_from(&mut buf).await.unwrap();
+            let message = String::from_utf8_lossy(&buf[..size]);
+            let mut parts = message.split('\n');
+            let response = parts.next().unwrap();
+            response.to_owned()
+        });
         let _ = Screen::new(5).unwrap();
         assert_eq!(gateway.await.unwrap(), "prepare".to_string());
     }
@@ -625,21 +621,18 @@ mod tests {
         let mut file = File::create(&file_path).unwrap();
         file.write_all(format!("{}\n", serde_json::to_string(&order).unwrap()).as_bytes())
             .unwrap();
-            
-        let management = task::spawn(
-            async move {
-                
-                let socket = UdpSocket::bind(ORDER_MANAGEMENT_IP.to_string()).await.unwrap();
-                let mut buf = [0; 1024];
-                let (size, _) = socket.recv_from(&mut buf).await.unwrap();
-                let message = String::from_utf8_lossy(&buf[..size]);
-                let mut parts = message.split('\n');
-                let response = parts.next().unwrap();
-                response.to_owned()
-                    
-    
-            }
-        );
+
+        let management = task::spawn(async move {
+            let socket = UdpSocket::bind(ORDER_MANAGEMENT_IP.to_string())
+                .await
+                .unwrap();
+            let mut buf = [0; 1024];
+            let (size, _) = socket.recv_from(&mut buf).await.unwrap();
+            let message = String::from_utf8_lossy(&buf[..size]);
+            let mut parts = message.split('\n');
+            let response = parts.next().unwrap();
+            response.to_owned()
+        });
         let _ = Screen::new(7).unwrap();
         assert_eq!(management.await.unwrap(), "prepare".to_string());
     }
@@ -649,12 +642,8 @@ mod tests {
         let order = Order::new(1, 1, "0000111122223333".to_string(), Vec::new());
         let file_path = format!("orders_screen_9.jsonl");
         let _ = File::create(&file_path).unwrap();
-       
-         
+
         let mut screen = Screen::new(9).unwrap();
         assert!(screen.prepare(&order).unwrap() == false);
     }
-
-   
-
 }

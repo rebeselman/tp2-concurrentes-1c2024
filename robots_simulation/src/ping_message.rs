@@ -7,7 +7,7 @@ pub enum PingMessage {
     Pong,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct PeerStatus {
     pub(crate) last_pong: Option<Instant>,
     pub(crate) ping_attempts: usize,

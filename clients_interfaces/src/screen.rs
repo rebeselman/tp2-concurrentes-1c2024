@@ -285,8 +285,7 @@ impl Screen {
         self.socket.send_to(message, PAYMENT_GATEWAY_IP)?;
 
         let order_management_ip = self.order_management_ip.lock().map_err(|e| e.to_string())?;
-        println!("Order managment ip: {:?}", order_management_ip);
-
+       
         self.socket.send_to(message, *order_management_ip)?;
         drop(order_management_ip);
         let (lock, cvar) = &*self.responses;
@@ -305,8 +304,7 @@ impl Screen {
                 println!("[SCREEN {}] Timeout waiting for responses", self.id);
                 return Ok(false);
             }
-            println!("[SCREEN {}] Received responses: {:?}", self.id, responses);
-
+          
             if responses[PAYMENT_GATEWAY] == Some(expected) {
                 if responses[ORDER_MANAGEMENT] == Some(expected) {
                     if expected == OrderState::Finished {
@@ -401,7 +399,6 @@ impl Screen {
         println!("[SCREEN {}] processing PONG from {}", self.id, screen_id);
         let (lock, cvar) = &*self.screen_in_charge_state;
         let mut responses = lock.lock().map_err(|e| e.to_string())?;
-        println!("[SCREEN {}]last order: {:?}", self.id, last_order);
         *responses = Some(ScreenState::Active(last_order));
         cvar.notify_all();
         Ok(())
@@ -469,7 +466,7 @@ impl Screen {
         *responses = Some(ScreenState::Finished);
         Ok(())
     }
-    
+
     /// Returns true if the screen has finished processing the orders.
     pub fn is_finished(&self) -> bool {
         self.is_finished
@@ -492,10 +489,7 @@ impl Screen {
             "keepalive" => OrderState::Wait(Instant::now()),
             _ => return Ok(()),
         };
-        println!(
-            "[SCREEN {}] received {} from {} for order {}",
-            self.id, message, from, order_id
-        );
+       
         let mut responses = self.responses.0.lock().map_err(|e| e.to_string())?;
 
         if from == PAYMENT_GATEWAY_IP {
@@ -616,7 +610,7 @@ impl Handler<ScreenMessage> for Screen {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::Write;
+    use std::{io::Write, net::TcpListener};
     use tokio::{net::UdpSocket, task};
 
     // - pantalla hace prepare y recibe ready de ambos
@@ -674,5 +668,11 @@ mod tests {
 
         let mut screen = Screen::new(9).unwrap();
         assert!(screen.prepare(&order).unwrap() == false);
+    }
+
+
+    #[tokio::test]
+    async fn server(){
+        let socket = TcpListener::bind("127.0.0.1:8081").await.unwrap();
     }
 }

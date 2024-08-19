@@ -27,10 +27,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     .map_err(|e| e.to_string())?;
                 if from != *order_management_ip && from.to_string() != PAYMENT_GATEWAY_IP {
                     // change to screen.order_management_ip
-                    println!(
-                        "Change order_management_ip from {} to {}",
-                        *order_management_ip, from
-                    );
+                   
                     *order_management_ip = from;
                 }
                 drop(order_management_ip);
